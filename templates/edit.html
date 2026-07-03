@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Редагувати слово</title>
+<style>
+  :root {
+    --bg: #f4f2ee; --card: #ffffff; --text: #2b2622;
+    --muted: #8a8178; --accent: #c0392b; --border: #e3ded6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1c1a18; --card: #262320; --text: #ece7e0;
+      --muted: #9a9186; --accent: #e05545; --border: #38342f;
+    }
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body {
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    background: var(--bg); color: var(--text);
+    max-width: 560px; margin: 0 auto; padding: 16px 12px 48px;
+  }
+  h1 { font-size: 1.25rem; margin-bottom: 16px; }
+  form {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 12px; padding: 14px;
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  input, textarea {
+    width: 100%; padding: 12px; font-size: 1.05rem;
+    border: 1px solid var(--border); border-radius: 8px;
+    background: var(--bg); color: var(--text);
+  }
+  input:focus, textarea:focus { outline: 2px solid var(--accent); border-color: transparent; }
+  button {
+    padding: 12px; font-size: 1.05rem; font-weight: 600;
+    border: none; border-radius: 8px; cursor: pointer;
+    background: var(--accent); color: #fff;
+  }
+  a.back { display: inline-block; margin-top: 12px; color: var(--muted); }
+</style>
+</head>
+<body>
+  <h1>Редагувати слово</h1>
+  <form method="post">
+    <input name="georgian" value="{{ word.georgian }}" required autocomplete="off">
+    <input name="translation" value="{{ word.translation }}" required autocomplete="off">
+    <textarea name="example" rows="2" placeholder="Приклад / нотатка">{{ word.example }}</textarea>
+    <button type="submit">Зберегти</button>
+  </form>
+  <a class="back" href="{{ url_for('index') }}">← Назад до списку</a>
+</body>
+</html>
