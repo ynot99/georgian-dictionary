@@ -61,11 +61,11 @@
   }
   .toolbar { display: flex; gap: 8px; margin-bottom: 12px; }
   .toolbar input { flex: 1; padding: 10px 12px; font-size: .95rem; }
-  .toolbar a {
+  .toolbar button {
     display: flex; align-items: center; padding: 0 14px;
     background: var(--card); border: 1px solid var(--border);
     border-radius: 8px; color: var(--text); text-decoration: none;
-    font-size: .9rem; white-space: nowrap;
+    font-size: .9rem; white-space: nowrap; cursor: pointer; font-family: inherit;
   }
   .word {
     background: var(--card); border: 1px solid var(--border);
@@ -102,7 +102,7 @@
 
   <div class="toolbar">
     <input type="search" id="search" placeholder="Пошук…">
-    <a href="/export.csv" id="csv-link">⬇ CSV</a>
+    <button type="button" id="csv-btn">⬇ CSV</button>
   </div>
 
   <div id="list"></div>
@@ -201,6 +201,33 @@ async function deleteWord(w) {
   render();
 }
 
+// ---------- CSV-експорт ----------
+
+// Клієнтський (не серверний) експорт: PWA в standalone-режимі не має кнопки
+// "назад", тож звичайне посилання на /export.csv "виносить" з застосунку
+// без можливості повернутись. Генеруємо CSV з уже наявних локальних даних —
+// заодно працює й офлайн.
+function csvField(value) {
+  const s = String(value ?? "");
+  return /["\r\n,]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+
+function exportCsv() {
+  const rows = [["georgian", "translation", "example", "created_at"], ...words.map(
+    (w) => [w.georgian, w.translation, w.example, w.created_at]
+  )];
+  const csv = "﻿" + rows.map((r) => r.map(csvField).join(",")).join("\r\n") + "\r\n";
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `dictionary-${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 // ---------- рендеринг ----------
 
 const listEl = document.getElementById("list");
@@ -274,6 +301,7 @@ document.getElementById("add-form").addEventListener("submit", (e) => {
 
 searchEl.addEventListener("input", render);
 document.getElementById("sync-btn").addEventListener("click", sync);
+document.getElementById("csv-btn").addEventListener("click", exportCsv);
 window.addEventListener("online", sync);
 
 if ("serviceWorker" in navigator) {
