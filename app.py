@@ -1,12 +1,17 @@
 import csv
+import glob
 import io
+import os
+import shutil
 import socket
 import sqlite3
+import subprocess
 import sys
+import uuid as uuidlib
 from datetime import datetime, timezone
 from pathlib import Path
 
-from flask import Flask, g, redirect, render_template, request, url_for, Response
+from flask import Flask, g, redirect, render_template, request, url_for, Response, send_file
 
 BASE_DIR = Path(__file__).parent
 DB_PATH = BASE_DIR / "dictionary.db"
@@ -35,12 +40,38 @@ def init_db():
         db.execute("""
             CREATE TABLE IF NOT EXISTS words (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                uuid TEXT,
                 georgian TEXT NOT NULL,
                 translation TEXT NOT NULL,
                 example TEXT NOT NULL DEFAULT '',
                 created_at TEXT NOT NULL
             )
         """)
+        # міграція старої бази без колонки uuid
+        cols = [row[1] for row in db.execute("PRAGMA table_info(words)")]
+        if "uuid" not in cols:
+            db.execute("ALTER TABLE words ADD COLUMN uuid TEXT")
+        for (word_id,) in db.execute(
+            "SELECT id FROM words WHERE uuid IS NULL OR uuid = ''"
+        ).fetchall():
+            db.execute("UPDATE words SET uuid = ? WHERE id = ?",
+                       (str(uuidlib.uuid4()), word_id))
+        db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_words_uuid ON words(uuid)")
+
+
+def utcnow():
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def word_dict(row):
+    return {
+        "id": row["id"],
+        "uuid": row["uuid"],
+        "georgian": row["georgian"],
+        "translation": row["translation"],
+        "example": row["example"],
+        "created_at": row["created_at"],
+    }
 
 
 @app.after_request
@@ -54,35 +85,51 @@ def no_cache(response):
 
 @app.route("/")
 def index():
-    q = request.args.get("q", "").strip()
+    return render_template("index.html")
+
+
+@app.route("/sw.js")
+def service_worker():
+    return app.send_static_file("sw.js")
+
+
+@app.route("/api/words")
+def api_words():
+    rows = get_db().execute("SELECT * FROM words ORDER BY id DESC").fetchall()
+    return {"words": [word_dict(r) for r in rows]}
+
+
+@app.route("/api/sync", methods=["POST"])
+def api_sync():
+    """Приймає несинхронізовані слова з телефону, повертає повний список.
+
+    Дедуплікація по uuid: слово, яке вже є на сервері, вдруге не вставиться.
+    """
+    payload = request.get_json(silent=True) or {}
     db = get_db()
-    if q:
-        rows = db.execute(
-            "SELECT * FROM words WHERE georgian LIKE ? OR translation LIKE ? "
-            "ORDER BY id DESC",
-            (f"%{q}%", f"%{q}%"),
-        ).fetchall()
-    else:
-        rows = db.execute("SELECT * FROM words ORDER BY id DESC").fetchall()
-    total = db.execute("SELECT COUNT(*) FROM words").fetchone()[0]
-    return render_template("index.html", words=rows, q=q, total=total)
-
-
-@app.route("/add", methods=["POST"])
-def add():
-    georgian = request.form.get("georgian", "").strip()
-    translation = request.form.get("translation", "").strip()
-    example = request.form.get("example", "").strip()
-    if georgian and translation:
-        db = get_db()
+    for w in payload.get("words", []):
+        georgian = (w.get("georgian") or "").strip()
+        translation = (w.get("translation") or "").strip()
+        if not (georgian and translation):
+            continue
         db.execute(
-            "INSERT INTO words (georgian, translation, example, created_at) "
-            "VALUES (?, ?, ?, ?)",
-            (georgian, translation, example,
-             datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")),
+            "INSERT OR IGNORE INTO words (uuid, georgian, translation, example, "
+            "created_at) VALUES (?, ?, ?, ?, ?)",
+            ((w.get("uuid") or "").strip() or str(uuidlib.uuid4()),
+             georgian, translation, (w.get("example") or "").strip(),
+             (w.get("created_at") or "").strip() or utcnow()),
         )
-        db.commit()
-    return redirect(url_for("index"))
+    db.commit()
+    rows = db.execute("SELECT * FROM words ORDER BY id DESC").fetchall()
+    return {"words": [word_dict(r) for r in rows]}
+
+
+@app.route("/api/words/<word_uuid>", methods=["DELETE"])
+def api_delete(word_uuid):
+    db = get_db()
+    db.execute("DELETE FROM words WHERE uuid = ?", (word_uuid,))
+    db.commit()
+    return {"ok": True}
 
 
 @app.route("/edit/<int:word_id>", methods=["GET", "POST"])
@@ -104,14 +151,6 @@ def edit(word_id):
             db.commit()
         return redirect(url_for("index"))
     return render_template("edit.html", word=word)
-
-
-@app.route("/delete/<int:word_id>", methods=["POST"])
-def delete(word_id):
-    db = get_db()
-    db.execute("DELETE FROM words WHERE id = ?", (word_id,))
-    db.commit()
-    return redirect(url_for("index"))
 
 
 @app.route("/export.csv")
@@ -149,14 +188,84 @@ def local_ip():
         return "127.0.0.1"
 
 
+# ---------- HTTPS через mkcert (потрібен iOS для service worker/офлайну) ----------
+
+CERT_DIR = BASE_DIR / "certs"
+CERT_FILE = CERT_DIR / "cert.pem"
+KEY_FILE = CERT_DIR / "key.pem"
+META_FILE = CERT_DIR / "meta.txt"
+
+
+def find_mkcert():
+    exe = shutil.which("mkcert")
+    if exe:
+        return exe
+    # winget кладе mkcert у версійовану папку, яка не одразу в PATH
+    pattern = os.path.expandvars(
+        r"%LOCALAPPDATA%\Microsoft\WinGet\Packages\FiloSottile.mkcert_*\mkcert.exe"
+    )
+    matches = glob.glob(pattern)
+    return matches[0] if matches else None
+
+
+def find_caroot(mkcert_path):
+    try:
+        out = subprocess.check_output([mkcert_path, "-CAROOT"], text=True)
+        return Path(out.strip())
+    except (subprocess.CalledProcessError, OSError):
+        return None
+
+
+def ensure_cert(ip, mkcert_path):
+    """Генерує сертифікат для поточної IP-адреси; перегенеровує, якщо IP змінилась."""
+    if META_FILE.exists() and CERT_FILE.exists() and META_FILE.read_text().strip() == ip:
+        return True
+    CERT_DIR.mkdir(exist_ok=True)
+    try:
+        subprocess.run(
+            [mkcert_path, "-cert-file", str(CERT_FILE), "-key-file", str(KEY_FILE),
+             ip, "localhost", "127.0.0.1"],
+            check=True, capture_output=True, text=True,
+        )
+    except (subprocess.CalledProcessError, OSError) as e:
+        print(f"  Не вдалося згенерувати сертифікат mkcert: {e}")
+        return False
+    META_FILE.write_text(ip)
+    return True
+
+
+@app.route("/install-cert")
+def install_cert():
+    mkcert_path = find_mkcert()
+    caroot = find_caroot(mkcert_path) if mkcert_path else None
+    if not caroot or not (caroot / "rootCA.pem").exists():
+        return "Кореневий сертифікат mkcert не знайдено на сервері.", 404
+    return send_file(caroot / "rootCA.pem", mimetype="application/x-x509-ca-cert",
+                      download_name="mkcert-rootCA.pem")
+
+
 if __name__ == "__main__":
     # консоль Windows за замовчуванням не UTF-8
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     init_db()
+
+    ip = local_ip()
+    mkcert_path = find_mkcert()
+    ssl_context = None
+    if mkcert_path and ensure_cert(ip, mkcert_path):
+        ssl_context = (str(CERT_FILE), str(KEY_FILE))
+
     port = 5000
+    scheme = "https" if ssl_context else "http"
     print()
     print("  Словник запущено!")
-    print(f"  На цьому комп'ютері:  http://127.0.0.1:{port}")
-    print(f"  З телефону (Wi-Fi):   http://{local_ip()}:{port}")
+    print(f"  На цьому комп'ютері:  {scheme}://127.0.0.1:{port}")
+    print(f"  З телефону (Wi-Fi):   {scheme}://{ip}:{port}")
+    if ssl_context:
+        print(f"  Разово на iPhone: відкрий {scheme}://{ip}:{port}/install-cert,")
+        print("  встанови профіль (Settings > General > VPN & Device Management > Install),")
+        print("  потім увімкни довіру (Settings > General > About > Certificate Trust Settings).")
+    else:
+        print("  mkcert не знайдено — офлайн-режим на iPhone працювати не буде (потрібен HTTPS).")
     print()
-    app.run(host="0.0.0.0", port=port, debug=False)
+    app.run(host="0.0.0.0", port=port, debug=False, ssl_context=ssl_context)
