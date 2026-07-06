@@ -169,6 +169,53 @@ def api_sync():
             "reviews": [review_dict(r) for r in reviews]}
 
 
+@app.route("/api/import", methods=["POST"])
+def api_import():
+    """Імпорт CSV-рядків (розпарсених клієнтом у JSON) після AI-перевірки.
+
+    Рядок з відомим uuid оновлює наявне слово; з невідомим/порожнім uuid —
+    створює нове. Порожні georgian/translation — рядок пропускається.
+    """
+    payload = request.get_json(silent=True) or {}
+    db = get_db()
+    updated = created = unchanged = skipped = 0
+    for row in payload.get("words", []):
+        georgian = (row.get("georgian") or "").strip()
+        translation = (row.get("translation") or "").strip()
+        example = (row.get("example") or "").strip()
+        if not (georgian and translation):
+            skipped += 1
+            continue
+        word_uuid = (row.get("uuid") or "").strip()
+        existing = None
+        if word_uuid:
+            existing = db.execute(
+                "SELECT * FROM words WHERE uuid = ?", (word_uuid,)).fetchone()
+        if existing is not None:
+            if (existing["georgian"] == georgian
+                    and existing["translation"] == translation
+                    and existing["example"] == example):
+                unchanged += 1
+            else:
+                db.execute(
+                    "UPDATE words SET georgian = ?, translation = ?, example = ? "
+                    "WHERE uuid = ?",
+                    (georgian, translation, example, word_uuid),
+                )
+                updated += 1
+        else:
+            db.execute(
+                "INSERT INTO words (uuid, georgian, translation, example, "
+                "created_at) VALUES (?, ?, ?, ?, ?)",
+                (word_uuid or str(uuidlib.uuid4()), georgian, translation,
+                 example, (row.get("created_at") or "").strip() or utcnow()),
+            )
+            created += 1
+    db.commit()
+    return {"updated": updated, "created": created,
+            "unchanged": unchanged, "skipped": skipped}
+
+
 @app.route("/api/words/<word_uuid>", methods=["DELETE"])
 def api_delete(word_uuid):
     db = get_db()
@@ -203,13 +250,14 @@ def edit(word_id):
 def export_csv():
     db = get_db()
     rows = db.execute(
-        "SELECT georgian, translation, example, created_at FROM words ORDER BY id"
+        "SELECT uuid, georgian, translation, example, created_at FROM words ORDER BY id"
     ).fetchall()
     buf = io.StringIO()
     writer = csv.writer(buf)
-    writer.writerow(["georgian", "translation", "example", "created_at"])
+    # uuid потрібен, щоб імпорт міг оновити саме це слово, а не створити дублікат
+    writer.writerow(["uuid", "georgian", "translation", "example", "created_at"])
     for row in rows:
-        writer.writerow([row["georgian"], row["translation"],
+        writer.writerow([row["uuid"], row["georgian"], row["translation"],
                          row["example"], row["created_at"]])
     # BOM, щоб Excel коректно відкривав UTF-8
     data = "﻿" + buf.getvalue()
