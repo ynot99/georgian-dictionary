@@ -57,6 +57,17 @@ def init_db():
             db.execute("UPDATE words SET uuid = ? WHERE id = ?",
                        (str(uuidlib.uuid4()), word_id))
         db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_words_uuid ON words(uuid)")
+        # прогрес SRS-повторень: одна картка = слово + напрямок (ka2uk / uk2ka)
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS reviews (
+                word_uuid TEXT NOT NULL,
+                direction TEXT NOT NULL,
+                level INTEGER NOT NULL DEFAULT 0,
+                due_at TEXT NOT NULL,
+                reviewed_at TEXT NOT NULL,
+                PRIMARY KEY (word_uuid, direction)
+            )
+        """)
 
 
 def utcnow():
@@ -71,6 +82,16 @@ def word_dict(row):
         "translation": row["translation"],
         "example": row["example"],
         "created_at": row["created_at"],
+    }
+
+
+def review_dict(row):
+    return {
+        "word_uuid": row["word_uuid"],
+        "direction": row["direction"],
+        "level": row["level"],
+        "due_at": row["due_at"],
+        "reviewed_at": row["reviewed_at"],
     }
 
 
@@ -101,9 +122,10 @@ def api_words():
 
 @app.route("/api/sync", methods=["POST"])
 def api_sync():
-    """Приймає несинхронізовані слова з телефону, повертає повний список.
+    """Приймає несинхронізовані слова і прогрес повторень, повертає повний стан.
 
-    Дедуплікація по uuid: слово, яке вже є на сервері, вдруге не вставиться.
+    Слова: дедуплікація по uuid (INSERT OR IGNORE).
+    Повторення: last-write-wins по reviewed_at — новіша оцінка перекриває старішу.
     """
     payload = request.get_json(silent=True) or {}
     db = get_db()
@@ -119,15 +141,39 @@ def api_sync():
              georgian, translation, (w.get("example") or "").strip(),
              (w.get("created_at") or "").strip() or utcnow()),
         )
+    for r in payload.get("reviews", []):
+        word_uuid = (r.get("word_uuid") or "").strip()
+        direction = r.get("direction")
+        due_at = (r.get("due_at") or "").strip()
+        reviewed_at = (r.get("reviewed_at") or "").strip()
+        if direction not in ("ka2uk", "uk2ka") or not (word_uuid and due_at and reviewed_at):
+            continue
+        word_exists = db.execute(
+            "SELECT 1 FROM words WHERE uuid = ?", (word_uuid,)).fetchone()
+        if not word_exists:
+            continue
+        existing = db.execute(
+            "SELECT reviewed_at FROM reviews WHERE word_uuid = ? AND direction = ?",
+            (word_uuid, direction)).fetchone()
+        if existing is None or reviewed_at > existing["reviewed_at"]:
+            db.execute(
+                "INSERT OR REPLACE INTO reviews (word_uuid, direction, level, "
+                "due_at, reviewed_at) VALUES (?, ?, ?, ?, ?)",
+                (word_uuid, direction, int(r.get("level") or 0),
+                 due_at, reviewed_at),
+            )
     db.commit()
-    rows = db.execute("SELECT * FROM words ORDER BY id DESC").fetchall()
-    return {"words": [word_dict(r) for r in rows]}
+    words = db.execute("SELECT * FROM words ORDER BY id DESC").fetchall()
+    reviews = db.execute("SELECT * FROM reviews").fetchall()
+    return {"words": [word_dict(r) for r in words],
+            "reviews": [review_dict(r) for r in reviews]}
 
 
 @app.route("/api/words/<word_uuid>", methods=["DELETE"])
 def api_delete(word_uuid):
     db = get_db()
     db.execute("DELETE FROM words WHERE uuid = ?", (word_uuid,))
+    db.execute("DELETE FROM reviews WHERE word_uuid = ?", (word_uuid,))
     db.commit()
     return {"ok": True}
 

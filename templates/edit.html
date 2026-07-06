@@ -45,8 +45,8 @@
 <body>
   <h1>Редагувати слово</h1>
   <form method="post">
-    <input name="georgian" value="{{ word.georgian }}" required autocomplete="off">
-    <input name="translation" value="{{ word.translation }}" required autocomplete="off">
+    <input name="georgian" value="{{ word.georgian }}" required autocomplete="off" lang="ka">
+    <input name="translation" value="{{ word.translation }}" required autocomplete="off" lang="uk">
     <textarea name="example" rows="2" placeholder="Приклад / нотатка">{{ word.example }}</textarea>
     <button type="submit">Зберегти</button>
   </form>
