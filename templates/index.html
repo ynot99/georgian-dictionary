@@ -86,6 +86,22 @@
   }
   .empty { text-align: center; color: var(--muted); padding: 32px 0; }
   [hidden] { display: none !important; }
+  .tagbar {
+    display: flex; gap: 6px; overflow-x: auto; margin-bottom: 12px;
+    -webkit-overflow-scrolling: touch; scrollbar-width: none;
+  }
+  .tagbar::-webkit-scrollbar { display: none; }
+  .chip {
+    padding: 5px 12px; border-radius: 999px; font-size: .8rem;
+    border: 1px solid var(--border); background: var(--card);
+    color: var(--muted); cursor: pointer; white-space: nowrap; flex-shrink: 0;
+  }
+  .chip.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .word .tags { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 6px; }
+  .word .tag {
+    font-size: .7rem; padding: 2px 8px; border-radius: 999px;
+    border: 1px solid var(--border); color: var(--muted);
+  }
   #review-btn {
     width: 100%; padding: 12px; font-size: 1rem; font-weight: 600;
     border: 1px solid var(--border); border-radius: 12px;
@@ -135,10 +151,13 @@
     <input name="georgian" id="f-georgian" placeholder="Грузинське слово" required autocomplete="off" autofocus lang="ka">
     <input name="translation" id="f-translation" placeholder="Переклад" required autocomplete="off" lang="uk">
     <textarea name="example" id="f-example" rows="1" placeholder="Приклад / нотатка (необов'язково)"></textarea>
+    <input name="tags" id="f-tags" placeholder="Теги через кому (необов'язково)" autocomplete="off">
     <button type="submit">Додати</button>
   </form>
 
   <button type="button" id="review-btn">🎓 Повторення</button>
+
+  <div class="tagbar" id="tagbar" hidden></div>
 
   <div class="toolbar">
     <input type="search" id="search" placeholder="Пошук…">
@@ -191,6 +210,26 @@ let reviews = (() => {
 })();
 function saveReviews() { localStorage.setItem("reviews", JSON.stringify(reviews)); }
 
+// "їжа, Дієслова,їжа" → "їжа, дієслова" (трім, нижній регістр, без дублів)
+function normalizeTags(raw) {
+  const seen = [];
+  for (let t of (raw || "").split(",")) {
+    t = t.trim().toLowerCase();
+    if (t && !seen.includes(t)) seen.push(t);
+  }
+  return seen.join(", ");
+}
+
+function tagList(w) {
+  return (w.tags || "").split(",").map((t) => t.trim()).filter(Boolean);
+}
+
+let activeTag = null;   // активний фільтр списку і повторення
+
+function wordsInScope() {
+  return activeTag ? words.filter((w) => tagList(w).includes(activeTag)) : words;
+}
+
 function makeUuid() {
   if (crypto.randomUUID) return crypto.randomUUID();
   // insecure context не має randomUUID
@@ -241,11 +280,12 @@ async function sync() {
 
 // ---------- дії ----------
 
-function addWord(georgian, translation, example) {
+function addWord(georgian, translation, example, tags) {
   words.unshift({
     uuid: makeUuid(),
     id: null,
     georgian, translation, example,
+    tags: normalizeTags(tags),
     created_at: new Date().toISOString().slice(0, 19).replace("T", " "),
     synced: false,
   });
@@ -307,11 +347,12 @@ function shuffle(arr) {
   return arr;
 }
 
-// картки до повторення: прострочені + нові (ліміт на сесію)
+// картки до повторення: прострочені + нові (ліміт на сесію);
+// активний тег-фільтр обмежує і повторення — можна тренувати тему окремо
 function collectDue() {
   const now = nowStr();
   const due = [], fresh = [];
-  for (const w of words) {
+  for (const w of wordsInScope()) {
     for (const dir of DIRECTIONS) {
       const r = reviews[w.uuid + "|" + dir];
       if (!r) fresh.push({ w, dir });
@@ -414,8 +455,8 @@ function csvField(value) {
 
 function exportCsv() {
   // uuid потрібен, щоб імпорт міг оновити саме це слово, а не створити дублікат
-  const rows = [["uuid", "georgian", "translation", "example", "created_at"], ...words.map(
-    (w) => [w.uuid, w.georgian, w.translation, w.example, w.created_at]
+  const rows = [["uuid", "georgian", "translation", "example", "tags", "created_at"], ...words.map(
+    (w) => [w.uuid, w.georgian, w.translation, w.example, w.tags || "", w.created_at]
   )];
   const csv = "﻿" + rows.map((r) => r.map(csvField).join(",")).join("\r\n") + "\r\n";
   const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
@@ -464,7 +505,7 @@ function csvToWords(text) {
   if (rows.length < 2) throw new Error("Файл порожній або без рядків даних.");
   const header = rows[0].map((h) => h.trim().toLowerCase());
   const col = {};
-  for (const name of ["uuid", "georgian", "translation", "example", "created_at"]) {
+  for (const name of ["uuid", "georgian", "translation", "example", "tags", "created_at"]) {
     col[name] = header.indexOf(name);
   }
   if (col.georgian === -1 || col.translation === -1) {
@@ -476,6 +517,7 @@ function csvToWords(text) {
     georgian: pick(r, "georgian"),
     translation: pick(r, "translation"),
     example: pick(r, "example"),
+    tags: pick(r, "tags"),
     created_at: pick(r, "created_at"),
   }));
 }
@@ -523,13 +565,37 @@ function el(tag, cls, text) {
   return node;
 }
 
+function renderTagbar() {
+  const tagbar = document.getElementById("tagbar");
+  const counts = new Map();
+  for (const w of words) {
+    for (const t of tagList(w)) counts.set(t, (counts.get(t) || 0) + 1);
+  }
+  if (activeTag && !counts.has(activeTag)) activeTag = null;
+  tagbar.hidden = counts.size === 0;
+  tagbar.replaceChildren();
+  if (!counts.size) return;
+  const allChip = el("button", "chip" + (activeTag === null ? " active" : ""),
+    `усі (${words.length})`);
+  allChip.onclick = () => { activeTag = null; render(); };
+  tagbar.append(allChip);
+  for (const [tag, n] of [...counts.entries()].sort((a, b) => b[1] - a[1])) {
+    const chip = el("button", "chip" + (activeTag === tag ? " active" : ""),
+      `${tag} (${n})`);
+    chip.onclick = () => { activeTag = activeTag === tag ? null : tag; render(); };
+    tagbar.append(chip);
+  }
+}
+
 function render() {
+  renderTagbar();
   const q = searchEl.value.trim().toLowerCase();
+  const scope = wordsInScope();
   const shown = q
-    ? words.filter((w) =>
+    ? scope.filter((w) =>
         w.georgian.toLowerCase().includes(q) ||
         w.translation.toLowerCase().includes(q))
-    : words;
+    : scope;
 
   listEl.replaceChildren();
   for (const w of shown) {
@@ -537,6 +603,12 @@ function render() {
     const body = el("div", "body");
     body.append(el("div", "ka", w.georgian), el("div", "tr", w.translation));
     if (w.example) body.append(el("div", "ex", w.example));
+    const wTags = tagList(w);
+    if (wTags.length) {
+      const tagsEl = el("div", "tags");
+      for (const t of wTags) tagsEl.append(el("span", "tag", t));
+      body.append(tagsEl);
+    }
     if (!w.synced) body.append(el("div", "pending", "⏳ не синхронізовано"));
     card.append(body);
 
@@ -556,7 +628,7 @@ function render() {
   }
   if (!shown.length) {
     listEl.append(el("p", "empty",
-      q ? "Нічого не знайдено." : "Поки що порожньо — додай перше слово!"));
+      q || activeTag ? "Нічого не знайдено." : "Поки що порожньо — додай перше слово!"));
   }
 
   const pending = words.filter((w) => !w.synced).length;
@@ -569,7 +641,8 @@ function render() {
   const { due, fresh } = collectDue();
   const total = due.length + Math.min(fresh.length, NEW_PER_SESSION);
   const reviewBtn = document.getElementById("review-btn");
-  reviewBtn.textContent = total ? `🎓 Повторення (${total})` : "🎓 Повторення";
+  const label = activeTag ? `🎓 Повторення: ${activeTag}` : "🎓 Повторення";
+  reviewBtn.textContent = total ? `${label} (${total})` : label;
   reviewBtn.disabled = !total;
 }
 
@@ -580,8 +653,9 @@ document.getElementById("add-form").addEventListener("submit", (e) => {
   const georgian = document.getElementById("f-georgian").value.trim();
   const translation = document.getElementById("f-translation").value.trim();
   const example = document.getElementById("f-example").value.trim();
+  const tags = document.getElementById("f-tags").value;
   if (!georgian || !translation) return;
-  addWord(georgian, translation, example);
+  addWord(georgian, translation, example, tags);
   e.target.reset();
   document.getElementById("f-georgian").focus();
 });

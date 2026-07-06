@@ -51,6 +51,8 @@ def init_db():
         cols = [row[1] for row in db.execute("PRAGMA table_info(words)")]
         if "uuid" not in cols:
             db.execute("ALTER TABLE words ADD COLUMN uuid TEXT")
+        if "tags" not in cols:
+            db.execute("ALTER TABLE words ADD COLUMN tags TEXT NOT NULL DEFAULT ''")
         for (word_id,) in db.execute(
             "SELECT id FROM words WHERE uuid IS NULL OR uuid = ''"
         ).fetchall():
@@ -74,6 +76,16 @@ def utcnow():
     return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
 
 
+def normalize_tags(raw):
+    """'їжа, Дієслова,їжа' → 'їжа, дієслова' — трім, нижній регістр, без дублів."""
+    seen = []
+    for tag in (raw or "").split(","):
+        tag = tag.strip().lower()
+        if tag and tag not in seen:
+            seen.append(tag)
+    return ", ".join(seen)
+
+
 def word_dict(row):
     return {
         "id": row["id"],
@@ -81,6 +93,7 @@ def word_dict(row):
         "georgian": row["georgian"],
         "translation": row["translation"],
         "example": row["example"],
+        "tags": row["tags"],
         "created_at": row["created_at"],
     }
 
@@ -136,9 +149,10 @@ def api_sync():
             continue
         db.execute(
             "INSERT OR IGNORE INTO words (uuid, georgian, translation, example, "
-            "created_at) VALUES (?, ?, ?, ?, ?)",
+            "tags, created_at) VALUES (?, ?, ?, ?, ?, ?)",
             ((w.get("uuid") or "").strip() or str(uuidlib.uuid4()),
              georgian, translation, (w.get("example") or "").strip(),
+             normalize_tags(w.get("tags")),
              (w.get("created_at") or "").strip() or utcnow()),
         )
     for r in payload.get("reviews", []):
@@ -173,8 +187,10 @@ def api_sync():
 def api_import():
     """Імпорт CSV-рядків (розпарсених клієнтом у JSON) після AI-перевірки.
 
-    Рядок з відомим uuid оновлює наявне слово; з невідомим/порожнім uuid —
-    створює нове. Порожні georgian/translation — рядок пропускається.
+    Рядок з відомим uuid оновлює наявне слово. Якщо uuid порожній/невідомий
+    (AI інколи ламає цю колонку) — захисна сітка: якщо в базі рівно одне слово
+    з таким самим грузинським написанням, оновлюємо його замість створення
+    дубліката. Інакше — нове слово. Порожні georgian/translation — пропуск.
     """
     payload = request.get_json(silent=True) or {}
     db = get_db()
@@ -183,6 +199,7 @@ def api_import():
         georgian = (row.get("georgian") or "").strip()
         translation = (row.get("translation") or "").strip()
         example = (row.get("example") or "").strip()
+        tags = normalize_tags(row.get("tags"))
         if not (georgian and translation):
             skipped += 1
             continue
@@ -191,24 +208,30 @@ def api_import():
         if word_uuid:
             existing = db.execute(
                 "SELECT * FROM words WHERE uuid = ?", (word_uuid,)).fetchone()
+        if existing is None:
+            same_georgian = db.execute(
+                "SELECT * FROM words WHERE georgian = ?", (georgian,)).fetchall()
+            if len(same_georgian) == 1:
+                existing = same_georgian[0]
         if existing is not None:
             if (existing["georgian"] == georgian
                     and existing["translation"] == translation
-                    and existing["example"] == example):
+                    and existing["example"] == example
+                    and existing["tags"] == tags):
                 unchanged += 1
             else:
                 db.execute(
-                    "UPDATE words SET georgian = ?, translation = ?, example = ? "
-                    "WHERE uuid = ?",
-                    (georgian, translation, example, word_uuid),
+                    "UPDATE words SET georgian = ?, translation = ?, example = ?, "
+                    "tags = ? WHERE uuid = ?",
+                    (georgian, translation, example, tags, existing["uuid"]),
                 )
                 updated += 1
         else:
             db.execute(
-                "INSERT INTO words (uuid, georgian, translation, example, "
-                "created_at) VALUES (?, ?, ?, ?, ?)",
+                "INSERT INTO words (uuid, georgian, translation, example, tags, "
+                "created_at) VALUES (?, ?, ?, ?, ?, ?)",
                 (word_uuid or str(uuidlib.uuid4()), georgian, translation,
-                 example, (row.get("created_at") or "").strip() or utcnow()),
+                 example, tags, (row.get("created_at") or "").strip() or utcnow()),
             )
             created += 1
     db.commit()
@@ -235,11 +258,12 @@ def edit(word_id):
         georgian = request.form.get("georgian", "").strip()
         translation = request.form.get("translation", "").strip()
         example = request.form.get("example", "").strip()
+        tags = normalize_tags(request.form.get("tags", ""))
         if georgian and translation:
             db.execute(
-                "UPDATE words SET georgian = ?, translation = ?, example = ? "
-                "WHERE id = ?",
-                (georgian, translation, example, word_id),
+                "UPDATE words SET georgian = ?, translation = ?, example = ?, "
+                "tags = ? WHERE id = ?",
+                (georgian, translation, example, tags, word_id),
             )
             db.commit()
         return redirect(url_for("index"))
@@ -250,15 +274,16 @@ def edit(word_id):
 def export_csv():
     db = get_db()
     rows = db.execute(
-        "SELECT uuid, georgian, translation, example, created_at FROM words ORDER BY id"
+        "SELECT uuid, georgian, translation, example, tags, created_at "
+        "FROM words ORDER BY id"
     ).fetchall()
     buf = io.StringIO()
     writer = csv.writer(buf)
     # uuid потрібен, щоб імпорт міг оновити саме це слово, а не створити дублікат
-    writer.writerow(["uuid", "georgian", "translation", "example", "created_at"])
+    writer.writerow(["uuid", "georgian", "translation", "example", "tags", "created_at"])
     for row in rows:
         writer.writerow([row["uuid"], row["georgian"], row["translation"],
-                         row["example"], row["created_at"]])
+                         row["example"], row["tags"], row["created_at"]])
     # BOM, щоб Excel коректно відкривав UTF-8
     data = "﻿" + buf.getvalue()
     filename = f"dictionary-{datetime.now().strftime('%Y-%m-%d')}.csv"
