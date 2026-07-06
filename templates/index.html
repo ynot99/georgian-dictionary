@@ -145,6 +145,16 @@
   .rv-back { font-size: 1.4rem; color: var(--accent); overflow-wrap: anywhere; }
   .rv-ex { color: var(--muted); font-style: italic; font-size: .95rem; }
   .rv-done { font-size: 1.2rem; }
+  .rv-top-btns { display: flex; gap: 4px; }
+  .rv-verdict { font-size: 1rem; font-weight: 600; }
+  .rv-verdict.ok { color: #4caf50; }
+  .rv-verdict.bad { color: var(--accent); }
+  .rv-type { display: flex; gap: 8px; padding-bottom: 4px; }
+  .rv-type input { flex: 1; min-width: 0; }
+  .rv-type button {
+    padding: 12px 16px; font-size: 1rem; font-weight: 600; border: none;
+    border-radius: 8px; cursor: pointer; background: var(--accent); color: #fff;
+  }
   .rv-actions { padding: 16px 0 24px; display: flex; gap: 10px; }
   .rv-actions button {
     flex: 1; padding: 16px; font-size: 1.05rem; font-weight: 600;
@@ -190,15 +200,24 @@
   <div id="review-overlay" hidden>
     <div class="rv-top">
       <span id="rv-progress"></span>
-      <button type="button" id="rv-close" title="Закрити">✕</button>
+      <span class="rv-top-btns">
+        <button type="button" id="rv-mode"></button>
+        <button type="button" id="rv-close" title="Закрити">✕</button>
+      </span>
     </div>
     <div class="rv-card">
       <p class="rv-dir" id="rv-dir"></p>
       <p class="rv-front" id="rv-front"></p>
+      <p class="rv-verdict" id="rv-verdict" hidden></p>
       <p class="rv-back" id="rv-back" hidden></p>
       <p class="rv-ex" id="rv-ex" hidden></p>
       <p class="rv-done" id="rv-done" hidden></p>
     </div>
+    <form class="rv-type" id="rv-type" hidden>
+      <input id="rv-input" autocomplete="off" autocapitalize="off"
+             autocorrect="off" spellcheck="false" placeholder="Відповідь…">
+      <button type="submit">Перевірити</button>
+    </form>
     <div class="rv-actions">
       <button type="button" id="rv-reveal">Показати відповідь</button>
       <button type="button" id="rv-wrong" hidden>❌ Не знав</button>
@@ -400,9 +419,56 @@ function collectDue() {
   return { due, fresh };
 }
 
+// ---- перевірка надрукованої відповіді ----
+
+function normAnswer(s) {
+  return (s || "").toLowerCase()
+    .replace(/\(.*?\)/g, " ")                 // "(з поясненням)" не обов'язкове
+    .replace(/[.,;:!?'"«»„"”()\/\\-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+// "дякую, спасибі" → зараховуємо і повну форму, і кожен варіант окремо
+function answerVariants(s) {
+  const out = [];
+  for (const v of [s, ...s.split(/[,;\/]/)]) {
+    const n = normAnswer(v);
+    if (n && !out.includes(n)) out.push(n);
+  }
+  return out;
+}
+
+// відстань Левенштейна ≤ 1 (одна одруківка: заміна, пропуск або зайва літера)
+function within1Edit(a, b) {
+  if (a === b) return true;
+  if (Math.abs(a.length - b.length) > 1) return false;
+  let i = 0, j = 0, edits = 0;
+  while (i < a.length && j < b.length) {
+    if (a[i] === b[j]) { i++; j++; continue; }
+    if (++edits > 1) return false;
+    if (a.length > b.length) i++;
+    else if (b.length > a.length) j++;
+    else { i++; j++; }
+  }
+  return edits + (a.length - i) + (b.length - j) <= 1;
+}
+
+function checkAnswer(typed, correct) {
+  const t = normAnswer(typed);
+  if (!t) return false;
+  for (const v of answerVariants(correct)) {
+    if (t === v) return true;
+    if (v.length >= 5 && within1Edit(t, v)) return true;   // коротким словам одруківку не прощаємо
+  }
+  return false;
+}
+
 let queue = [];
 let currentCard = null;
 let doneCount = 0;
+// "type" — друкуєш відповідь, "flip" — класичний показ; вибір запам'ятовується
+let reviewMode = localStorage.getItem("reviewMode") || "type";
 
 const overlay = document.getElementById("review-overlay");
 const rvProgress = document.getElementById("rv-progress");
@@ -414,6 +480,10 @@ const rvDone = document.getElementById("rv-done");
 const rvReveal = document.getElementById("rv-reveal");
 const rvWrong = document.getElementById("rv-wrong");
 const rvRight = document.getElementById("rv-right");
+const rvMode = document.getElementById("rv-mode");
+const rvType = document.getElementById("rv-type");
+const rvInput = document.getElementById("rv-input");
+const rvVerdict = document.getElementById("rv-verdict");
 
 function startReview() {
   const { due, fresh } = collectDue();
@@ -423,15 +493,23 @@ function startReview() {
   nextCard();
 }
 
-function nextCard() {
-  currentCard = queue.shift() || null;
+function updateModeBtn() {
+  rvMode.textContent = reviewMode === "type" ? "⌨️" : "👁";
+  rvMode.title = reviewMode === "type"
+    ? "Режим: друкування відповіді (тап — перемкнути на показ)"
+    : "Режим: показ відповіді (тап — перемкнути на друкування)";
+}
+
+function presentCard() {
   const finished = currentCard === null;
+  updateModeBtn();
   rvDone.hidden = !finished;
   rvDir.hidden = rvFront.hidden = finished;
-  rvBack.hidden = rvEx.hidden = true;
-  rvReveal.hidden = finished;
+  rvBack.hidden = rvEx.hidden = rvVerdict.hidden = true;
   rvWrong.hidden = rvRight.hidden = true;
+  rvMode.hidden = finished;
   if (finished) {
+    rvReveal.hidden = rvType.hidden = true;
     rvDone.textContent = doneCount
       ? `Готово! Повторено карток: ${doneCount} 🎉`
       : "Наразі немає карток до повторення. Приходь пізніше!";
@@ -443,6 +521,23 @@ function nextCard() {
   rvDir.textContent = dir === "ka2uk" ? "ქართული → переклад" : "переклад → ქართული";
   rvFront.textContent = dir === "ka2uk" ? w.georgian : w.translation;
   rvBack.textContent = dir === "ka2uk" ? w.translation : w.georgian;
+  if (reviewMode === "type") {
+    rvReveal.hidden = true;
+    rvType.hidden = false;
+    rvInput.value = "";
+    // семантична підказка мови поля (клавіатуру перемикаєш сам)
+    rvInput.lang = dir === "uk2ka" ? "ka" : "uk";
+    rvInput.placeholder = dir === "uk2ka" ? "ქართული…" : "Переклад…";
+    rvInput.focus();
+  } else {
+    rvType.hidden = true;
+    rvReveal.hidden = false;
+  }
+}
+
+function nextCard() {
+  currentCard = queue.shift() || null;
+  presentCard();
 }
 
 function reveal() {
@@ -451,8 +546,22 @@ function reveal() {
     rvEx.textContent = currentCard.w.example;
     rvEx.hidden = false;
   }
-  rvReveal.hidden = true;
+  rvReveal.hidden = rvType.hidden = true;
   rvWrong.hidden = rvRight.hidden = false;
+}
+
+function checkTyped() {
+  const typed = rvInput.value;
+  const { w, dir } = currentCard;
+  const correctText = dir === "ka2uk" ? w.translation : w.georgian;
+  if (normAnswer(typed)) {
+    const ok = checkAnswer(typed, correctText);
+    rvVerdict.textContent = ok ? "✅ Правильно!" : `❌ Ти написав: ${typed.trim()}`;
+    rvVerdict.className = "rv-verdict " + (ok ? "ok" : "bad");
+    rvVerdict.hidden = false;
+  }
+  // порожній ввід = "не пам'ятаю, покажи" — без вердикту
+  reveal();
 }
 
 function grade(correct) {
@@ -807,6 +916,15 @@ document.getElementById("rv-close").addEventListener("click", closeReview);
 rvReveal.addEventListener("click", reveal);
 rvWrong.addEventListener("click", () => grade(false));
 rvRight.addEventListener("click", () => grade(true));
+rvType.addEventListener("submit", (e) => {
+  e.preventDefault();
+  checkTyped();
+});
+rvMode.addEventListener("click", () => {
+  reviewMode = reviewMode === "type" ? "flip" : "type";
+  localStorage.setItem("reviewMode", reviewMode);
+  presentCard();   // перепоказати поточну картку в новому режимі
+});
 window.addEventListener("online", sync);
 
 if ("serviceWorker" in navigator) {
