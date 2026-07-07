@@ -11,7 +11,16 @@ import uuid as uuidlib
 from datetime import datetime, timezone
 from pathlib import Path
 
-from flask import Flask, g, redirect, render_template, request, url_for, Response, send_file
+from flask import (
+    Flask,
+    Response,
+    g,
+    redirect,
+    render_template,
+    request,
+    send_file,
+    url_for,
+)
 
 BASE_DIR = Path(__file__).parent
 DB_PATH = BASE_DIR / "dictionary.db"
@@ -36,17 +45,21 @@ load_env()
 
 try:
     import anthropic
-    _chat_client = anthropic.Anthropic() if os.environ.get("ANTHROPIC_API_KEY") else None
+
+    _chat_client = (
+        anthropic.Anthropic() if os.environ.get("ANTHROPIC_API_KEY") else None
+    )
 except ImportError:
     anthropic = None
     _chat_client = None
 
 CHAT_MODEL = "claude-sonnet-5"
 CHAT_MAX_TOKENS = 2048
-CHAT_HISTORY_LIMIT = 30   # скільки останніх повідомлень відправляти моделі
+CHAT_HISTORY_LIMIT = 30  # скільки останніх повідомлень відправляти моделі
 
 
 # ---------- database ----------
+
 
 def get_db():
     if "db" not in g:
@@ -83,8 +96,10 @@ def init_db():
         for (word_id,) in db.execute(
             "SELECT id FROM words WHERE uuid IS NULL OR uuid = ''"
         ).fetchall():
-            db.execute("UPDATE words SET uuid = ? WHERE id = ?",
-                       (str(uuidlib.uuid4()), word_id))
+            db.execute(
+                "UPDATE words SET uuid = ? WHERE id = ?",
+                (str(uuidlib.uuid4()), word_id),
+            )
         db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_words_uuid ON words(uuid)")
         # прогрес SRS-повторень: одна картка = слово + напрямок (ka2uk / uk2ka)
         db.execute("""
@@ -153,6 +168,7 @@ def no_cache(response):
 
 # ---------- routes ----------
 
+
 @app.route("/")
 def index():
     return render_template("index.html")
@@ -186,37 +202,46 @@ def api_sync():
         db.execute(
             "INSERT OR IGNORE INTO words (uuid, georgian, translation, example, "
             "tags, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-            ((w.get("uuid") or "").strip() or str(uuidlib.uuid4()),
-             georgian, translation, (w.get("example") or "").strip(),
-             normalize_tags(w.get("tags")),
-             (w.get("created_at") or "").strip() or utcnow()),
+            (
+                (w.get("uuid") or "").strip() or str(uuidlib.uuid4()),
+                georgian,
+                translation,
+                (w.get("example") or "").strip(),
+                normalize_tags(w.get("tags")),
+                (w.get("created_at") or "").strip() or utcnow(),
+            ),
         )
     for r in payload.get("reviews", []):
         word_uuid = (r.get("word_uuid") or "").strip()
         direction = r.get("direction")
         due_at = (r.get("due_at") or "").strip()
         reviewed_at = (r.get("reviewed_at") or "").strip()
-        if direction not in ("ka2uk", "uk2ka") or not (word_uuid and due_at and reviewed_at):
+        if direction not in ("ka2uk", "uk2ka") or not (
+            word_uuid and due_at and reviewed_at
+        ):
             continue
         word_exists = db.execute(
-            "SELECT 1 FROM words WHERE uuid = ?", (word_uuid,)).fetchone()
+            "SELECT 1 FROM words WHERE uuid = ?", (word_uuid,)
+        ).fetchone()
         if not word_exists:
             continue
         existing = db.execute(
             "SELECT reviewed_at FROM reviews WHERE word_uuid = ? AND direction = ?",
-            (word_uuid, direction)).fetchone()
+            (word_uuid, direction),
+        ).fetchone()
         if existing is None or reviewed_at > existing["reviewed_at"]:
             db.execute(
                 "INSERT OR REPLACE INTO reviews (word_uuid, direction, level, "
                 "due_at, reviewed_at) VALUES (?, ?, ?, ?, ?)",
-                (word_uuid, direction, int(r.get("level") or 0),
-                 due_at, reviewed_at),
+                (word_uuid, direction, int(r.get("level") or 0), due_at, reviewed_at),
             )
     db.commit()
     words = db.execute("SELECT * FROM words ORDER BY id DESC").fetchall()
     reviews = db.execute("SELECT * FROM reviews").fetchall()
-    return {"words": [word_dict(r) for r in words],
-            "reviews": [review_dict(r) for r in reviews]}
+    return {
+        "words": [word_dict(r) for r in words],
+        "reviews": [review_dict(r) for r in reviews],
+    }
 
 
 @app.route("/api/import", methods=["POST"])
@@ -243,17 +268,21 @@ def api_import():
         existing = None
         if word_uuid:
             existing = db.execute(
-                "SELECT * FROM words WHERE uuid = ?", (word_uuid,)).fetchone()
+                "SELECT * FROM words WHERE uuid = ?", (word_uuid,)
+            ).fetchone()
         if existing is None:
             same_georgian = db.execute(
-                "SELECT * FROM words WHERE georgian = ?", (georgian,)).fetchall()
+                "SELECT * FROM words WHERE georgian = ?", (georgian,)
+            ).fetchall()
             if len(same_georgian) == 1:
                 existing = same_georgian[0]
         if existing is not None:
-            if (existing["georgian"] == georgian
-                    and existing["translation"] == translation
-                    and existing["example"] == example
-                    and existing["tags"] == tags):
+            if (
+                existing["georgian"] == georgian
+                and existing["translation"] == translation
+                and existing["example"] == example
+                and existing["tags"] == tags
+            ):
                 unchanged += 1
             else:
                 db.execute(
@@ -266,13 +295,23 @@ def api_import():
             db.execute(
                 "INSERT INTO words (uuid, georgian, translation, example, tags, "
                 "created_at) VALUES (?, ?, ?, ?, ?, ?)",
-                (word_uuid or str(uuidlib.uuid4()), georgian, translation,
-                 example, tags, (row.get("created_at") or "").strip() or utcnow()),
+                (
+                    word_uuid or str(uuidlib.uuid4()),
+                    georgian,
+                    translation,
+                    example,
+                    tags,
+                    (row.get("created_at") or "").strip() or utcnow(),
+                ),
             )
             created += 1
     db.commit()
-    return {"updated": updated, "created": created,
-            "unchanged": unchanged, "skipped": skipped}
+    return {
+        "updated": updated,
+        "created": created,
+        "unchanged": unchanged,
+        "skipped": skipped,
+    }
 
 
 @app.route("/api/words/<word_uuid>", methods=["DELETE"])
@@ -286,6 +325,7 @@ def api_delete(word_uuid):
 
 # ---------- чат з репетитором (Claude) ----------
 
+
 def srs_status(level):
     if level <= 0:
         return "нове"
@@ -294,7 +334,7 @@ def srs_status(level):
     return "закріплене"
 
 
-CHAT_VOCAB_LIMIT = 300   # межа слів у промпті, щоб контекст не роздувався
+CHAT_VOCAB_LIMIT = 300  # межа слів у промпті, щоб контекст не роздувався
 
 
 def build_tutor_system(db):
@@ -318,16 +358,20 @@ def build_tutor_system(db):
     hidden = len(untrained) - len(shown_untrained)
 
     def word_line(w):
-        line = (f"- {w['georgian']} — {w['translation']} "
-                f"[{srs_status(levels.get(w['uuid'], 0))}]")
+        line = (
+            f"- {w['georgian']} — {w['translation']} "
+            f"[{srs_status(levels.get(w['uuid'], 0))}]"
+        )
         if w["tags"]:
             line += f" (теги: {w['tags']})"
         if w["example"]:
             line += f" | приклад: {w['example']}"
         return line
 
-    parts = [f"Усього слів у словнику: {len(words)}; "
-             f"з них у тренуванні (SRS): {len(trained)}."]
+    parts = [
+        f"Усього слів у словнику: {len(words)}; "
+        f"з них у тренуванні (SRS): {len(trained)}."
+    ]
     if trained:
         parts.append("Слова, які учень активно тренує:")
         parts.extend(word_line(w) for w in trained)
@@ -335,8 +379,10 @@ def build_tutor_system(db):
         parts.append("Останні додані слова (ще не тренувалися):")
         parts.extend(word_line(w) for w in shown_untrained)
     if hidden > 0:
-        parts.append(f"… та ще {hidden} слів у черзі на вивчення (не показані, "
-                     f"щоб не роздувати контекст).")
+        parts.append(
+            f"… та ще {hidden} слів у черзі на вивчення (не показані, "
+            f"щоб не роздувати контекст)."
+        )
     vocab = "\n".join(parts) if words else "(словник поки порожній)"
     return f"""\
 Ти — привітний персональний репетитор грузинської мови. Твій учень — україномовний, \
@@ -362,10 +408,11 @@ def build_tutor_system(db):
 @app.route("/api/chat", methods=["GET"])
 def api_chat_history():
     db = get_db()
-    rows = db.execute(
-        "SELECT role, content FROM chat_messages ORDER BY id").fetchall()
-    return {"configured": _chat_client is not None,
-            "messages": [{"role": r["role"], "content": r["content"]} for r in rows]}
+    rows = db.execute("SELECT role, content FROM chat_messages ORDER BY id").fetchall()
+    return {
+        "configured": _chat_client is not None,
+        "messages": [{"role": r["role"], "content": r["content"]} for r in rows],
+    }
 
 
 @app.route("/api/chat", methods=["DELETE"])
@@ -379,8 +426,10 @@ def api_chat_clear():
 @app.route("/api/chat", methods=["POST"])
 def api_chat_send():
     if _chat_client is None:
-        return {"error": "ANTHROPIC_API_KEY не налаштований — додай його у файл .env "
-                         "поруч з app.py і перезапусти сервер"}, 503
+        return {
+            "error": "ANTHROPIC_API_KEY не налаштований — додай його у файл .env "
+            "поруч з app.py і перезапусти сервер"
+        }, 503
     payload = request.get_json(silent=True) or {}
     text = (payload.get("message") or "").strip()
     if not text:
@@ -389,14 +438,16 @@ def api_chat_send():
     db = get_db()
     db.execute(
         "INSERT INTO chat_messages (role, content, created_at) VALUES (?, ?, ?)",
-        ("user", text, utcnow()))
+        ("user", text, utcnow()),
+    )
     db.commit()
     rows = db.execute(
         "SELECT role, content FROM chat_messages ORDER BY id DESC LIMIT ?",
-        (CHAT_HISTORY_LIMIT,)).fetchall()
+        (CHAT_HISTORY_LIMIT,),
+    ).fetchall()
     history = [{"role": r["role"], "content": r["content"]} for r in reversed(rows)]
     while history and history[0]["role"] != "user":
-        history.pop(0)   # історія для API має починатися з user-повідомлення
+        history.pop(0)  # історія для API має починатися з user-повідомлення
     system_prompt = build_tutor_system(db)
 
     def generate():
@@ -405,16 +456,23 @@ def api_chat_send():
             with _chat_client.messages.stream(
                 model=CHAT_MODEL,
                 max_tokens=CHAT_MAX_TOKENS,
-                system=[{"type": "text", "text": system_prompt,
-                         "cache_control": {"type": "ephemeral"}}],
+                system=[
+                    {
+                        "type": "text",
+                        "text": system_prompt,
+                        "cache_control": {"type": "ephemeral"},
+                    }
+                ],
                 messages=history,
             ) as stream:
                 for chunk in stream.text_stream:
                     collected.append(chunk)
                     yield chunk
         except anthropic.APIStatusError as e:
-            yield (f"⚠️ Помилка API ({e.status_code}) — перевір ключ і баланс "
-                   f"на console.anthropic.com")
+            yield (
+                f"⚠️ Помилка API ({e.status_code}) — перевір ключ і баланс "
+                f"на console.anthropic.com"
+            )
         except anthropic.APIConnectionError:
             yield "⚠️ Сервер не зміг з'єднатися з api.anthropic.com — перевір інтернет."
         finally:
@@ -425,7 +483,8 @@ def api_chat_send():
                     conn.execute(
                         "INSERT INTO chat_messages (role, content, created_at) "
                         "VALUES (?, ?, ?)",
-                        ("assistant", "".join(collected), utcnow()))
+                        ("assistant", "".join(collected), utcnow()),
+                    )
 
     return Response(generate(), mimetype="text/plain; charset=utf-8")
 
@@ -462,10 +521,20 @@ def export_csv():
     buf = io.StringIO()
     writer = csv.writer(buf)
     # uuid потрібен, щоб імпорт міг оновити саме це слово, а не створити дублікат
-    writer.writerow(["uuid", "georgian", "translation", "example", "tags", "created_at"])
+    writer.writerow(
+        ["uuid", "georgian", "translation", "example", "tags", "created_at"]
+    )
     for row in rows:
-        writer.writerow([row["uuid"], row["georgian"], row["translation"],
-                         row["example"], row["tags"], row["created_at"]])
+        writer.writerow(
+            [
+                row["uuid"],
+                row["georgian"],
+                row["translation"],
+                row["example"],
+                row["tags"],
+                row["created_at"],
+            ]
+        )
     # BOM, щоб Excel коректно відкривав UTF-8
     data = "﻿" + buf.getvalue()
     filename = f"dictionary-{datetime.now().strftime('%Y-%m-%d')}.csv"
@@ -477,6 +546,7 @@ def export_csv():
 
 
 # ---------- startup ----------
+
 
 def local_ip():
     try:
@@ -519,14 +589,28 @@ def find_caroot(mkcert_path):
 
 def ensure_cert(ip, mkcert_path):
     """Генерує сертифікат для поточної IP-адреси; перегенеровує, якщо IP змінилась."""
-    if META_FILE.exists() and CERT_FILE.exists() and META_FILE.read_text().strip() == ip:
+    if (
+        META_FILE.exists()
+        and CERT_FILE.exists()
+        and META_FILE.read_text().strip() == ip
+    ):
         return True
     CERT_DIR.mkdir(exist_ok=True)
     try:
         subprocess.run(
-            [mkcert_path, "-cert-file", str(CERT_FILE), "-key-file", str(KEY_FILE),
-             ip, "localhost", "127.0.0.1"],
-            check=True, capture_output=True, text=True,
+            [
+                mkcert_path,
+                "-cert-file",
+                str(CERT_FILE),
+                "-key-file",
+                str(KEY_FILE),
+                ip,
+                "localhost",
+                "127.0.0.1",
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
         )
     except (subprocess.CalledProcessError, OSError) as e:
         print(f"  Не вдалося згенерувати сертифікат mkcert: {e}")
@@ -541,8 +625,11 @@ def install_cert():
     caroot = find_caroot(mkcert_path) if mkcert_path else None
     if not caroot or not (caroot / "rootCA.pem").exists():
         return "Кореневий сертифікат mkcert не знайдено на сервері.", 404
-    return send_file(caroot / "rootCA.pem", mimetype="application/x-x509-ca-cert",
-                      download_name="mkcert-rootCA.pem")
+    return send_file(
+        caroot / "rootCA.pem",
+        mimetype="application/x-x509-ca-cert",
+        download_name="mkcert-rootCA.pem",
+    )
 
 
 if __name__ == "__main__":
@@ -564,9 +651,15 @@ if __name__ == "__main__":
     print(f"  З телефону (Wi-Fi):   {scheme}://{ip}:{port}")
     if ssl_context:
         print(f"  Разово на iPhone: відкрий {scheme}://{ip}:{port}/install-cert,")
-        print("  встанови профіль (Settings > General > VPN & Device Management > Install),")
-        print("  потім увімкни довіру (Settings > General > About > Certificate Trust Settings).")
+        print(
+            "  встанови профіль (Settings > General > VPN & Device Management > Install),"
+        )
+        print(
+            "  потім увімкни довіру (Settings > General > About > Certificate Trust Settings)."
+        )
     else:
-        print("  mkcert не знайдено — офлайн-режим на iPhone працювати не буде (потрібен HTTPS).")
+        print(
+            "  mkcert не знайдено — офлайн-режим на iPhone працювати не буде (потрібен HTTPS)."
+        )
     print()
     app.run(host="0.0.0.0", port=port, debug=False, ssl_context=ssl_context)
