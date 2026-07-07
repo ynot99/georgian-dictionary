@@ -116,13 +116,14 @@
     font-size: .7rem; padding: 2px 8px; border-radius: 999px;
     border: 1px solid var(--border); color: var(--muted);
   }
-  #review-btn {
-    width: 100%; padding: 12px; font-size: 1rem; font-weight: 600;
+  .btnrow { display: flex; gap: 8px; margin-bottom: 12px; }
+  .btnrow button {
+    flex: 1; padding: 12px; font-size: 1rem; font-weight: 600;
     border: 1px solid var(--border); border-radius: 12px;
     background: var(--card); color: var(--text); cursor: pointer;
-    margin-bottom: 12px;
   }
-  #review-btn:disabled { color: var(--muted); cursor: default; }
+  .btnrow button:disabled { color: var(--muted); cursor: default; }
+  #chat-btn { flex: 0 0 auto; padding: 12px 18px; }
   #review-overlay {
     position: fixed; inset: 0; z-index: 10; background: var(--bg);
     display: flex; flex-direction: column;
@@ -159,6 +160,45 @@
     text-align: center; color: var(--muted); font-size: .75rem;
     padding-bottom: 12px;
   }
+  #chat-overlay {
+    position: fixed; inset: 0; z-index: 11; background: var(--bg);
+    display: flex; flex-direction: column;
+    max-width: 560px; margin: 0 auto; padding: 12px;
+  }
+  .ch-top {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 8px;
+  }
+  .ch-title { font-weight: 600; }
+  .ch-top button {
+    background: none; border: none; font-size: 1.15rem; cursor: pointer;
+    color: var(--muted); padding: 4px 8px;
+  }
+  #chat-log {
+    flex: 1; overflow-y: auto; display: flex; flex-direction: column;
+    gap: 8px; padding: 4px 0; min-height: 0;
+  }
+  .msg {
+    max-width: 85%; padding: 10px 12px; border-radius: 12px;
+    white-space: pre-wrap; overflow-wrap: anywhere;
+    font-size: .95rem; line-height: 1.45;
+  }
+  .msg.user {
+    align-self: flex-end; background: var(--accent); color: #fff;
+    border-bottom-right-radius: 4px;
+  }
+  .msg.assistant {
+    align-self: flex-start; background: var(--card);
+    border: 1px solid var(--border); border-bottom-left-radius: 4px;
+  }
+  .msg.pending { color: var(--muted); }
+  .ch-note { text-align: center; color: var(--muted); font-size: .85rem; padding: 16px 8px; }
+  #chat-form { display: flex; gap: 8px; padding-top: 8px; }
+  #chat-input { flex: 1; min-width: 0; }
+  #chat-send {
+    padding: 12px 16px; font-size: 1.1rem; font-weight: 600; border: none;
+    border-radius: 8px; cursor: pointer; background: var(--accent); color: #fff;
+  }
   .rv-actions { padding: 16px 0 8px; display: flex; gap: 10px; }
   .rv-actions button {
     flex: 1; padding: 16px; font-size: 1.05rem; font-weight: 600;
@@ -188,7 +228,10 @@
     <button type="submit">Додати</button>
   </form>
 
-  <button type="button" id="review-btn">🎓 Повторення</button>
+  <div class="btnrow">
+    <button type="button" id="review-btn">🎓 Повторення</button>
+    <button type="button" id="chat-btn">💬 Чат</button>
+  </div>
 
   <div class="tagbar" id="tagbar" hidden></div>
 
@@ -228,6 +271,21 @@
       <button type="button" id="rv-right" hidden>✅ Знав</button>
     </div>
     <p class="rv-hint" id="rv-hint" hidden></p>
+  </div>
+
+  <div id="chat-overlay" hidden>
+    <div class="ch-top">
+      <span class="ch-title">💬 Репетитор грузинської</span>
+      <span class="rv-top-btns">
+        <button type="button" id="ch-clear" title="Очистити історію">🗑</button>
+        <button type="button" id="ch-close" title="Закрити">✕</button>
+      </span>
+    </div>
+    <div id="chat-log"></div>
+    <form id="chat-form">
+      <input id="chat-input" placeholder="Напиши українською або грузинською…" autocomplete="off">
+      <button type="submit" id="chat-send">➤</button>
+    </form>
   </div>
 
 <script>
@@ -905,6 +963,104 @@ function render() {
   reviewBtn.disabled = !total;
 }
 
+// ---------- чат з репетитором ----------
+
+const chatOverlay = document.getElementById("chat-overlay");
+const chatLog = document.getElementById("chat-log");
+const chatInput = document.getElementById("chat-input");
+let chatLoaded = false;
+let chatBusy = false;
+
+function chatBubble(role, text) {
+  const bubble = el("div", "msg " + role, text);
+  chatLog.append(bubble);
+  chatLog.scrollTop = chatLog.scrollHeight;
+  return bubble;
+}
+
+function chatNote(text) {
+  chatLog.append(el("p", "ch-note", text));
+  chatLog.scrollTop = chatLog.scrollHeight;
+}
+
+async function openChat() {
+  chatOverlay.hidden = false;
+  chatInput.focus();
+  if (chatLoaded) return;
+  chatLog.replaceChildren();
+  try {
+    const res = await fetch("/api/chat");
+    if (!res.ok) throw new Error();
+    const data = await res.json();
+    if (!data.configured) {
+      chatNote("Чат не налаштований. Створи файл .env поруч з app.py (зразок — .env.example), " +
+        "встав туди ANTHROPIC_API_KEY з console.anthropic.com і перезапусти сервер.");
+      return;
+    }
+    for (const m of data.messages) chatBubble(m.role, m.content);
+    if (!data.messages.length) {
+      chatNote("Привіт! Я твій репетитор грузинської — знаю всі слова з твого словника " +
+        "і твій прогрес. Напиши щось українською або грузинською 🙂");
+    }
+    chatLoaded = true;
+  } catch {
+    chatNote("Немає з'єднання з сервером — чат працює лише онлайн, у домашній мережі.");
+  }
+}
+
+// стрімінг: без таймауту (Claude може відповідати десятки секунд)
+async function sendChat(e) {
+  e.preventDefault();
+  const text = chatInput.value.trim();
+  if (!text || chatBusy) return;
+  chatBusy = true;
+  chatInput.value = "";
+  chatBubble("user", text);
+  const bubble = chatBubble("assistant", "…");
+  bubble.classList.add("pending");
+  try {
+    const res = await fetch("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: text }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || "server error");
+    }
+    bubble.classList.remove("pending");
+    bubble.textContent = "";
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      bubble.textContent += decoder.decode(value, { stream: true });
+      chatLog.scrollTop = chatLog.scrollHeight;
+    }
+    if (!bubble.textContent) bubble.textContent = "(порожня відповідь)";
+  } catch (err) {
+    bubble.classList.remove("pending");
+    bubble.textContent = "⚠️ " + (err.message && err.message !== "Failed to fetch"
+      ? err.message
+      : "Не вдалося з'єднатися з сервером — чат працює лише онлайн.");
+  }
+  chatBusy = false;
+  chatInput.focus();
+}
+
+async function clearChat() {
+  if (!confirm("Очистити всю історію розмови?")) return;
+  try {
+    const res = await fetch("/api/chat", { method: "DELETE" });
+    if (!res.ok) throw new Error();
+    chatLog.replaceChildren();
+    chatNote("Історію очищено. Почнімо заново!");
+  } catch {
+    alert("Немає з'єднання з сервером.");
+  }
+}
+
 // ---------- події ----------
 
 document.getElementById("add-form").addEventListener("submit", (e) => {
@@ -949,8 +1105,17 @@ rvMode.addEventListener("click", () => {
   presentCard();   // перепоказати поточну картку в новому режимі
 });
 
+document.getElementById("chat-btn").addEventListener("click", openChat);
+document.getElementById("ch-close").addEventListener("click", () => { chatOverlay.hidden = true; });
+document.getElementById("ch-clear").addEventListener("click", clearChat);
+document.getElementById("chat-form").addEventListener("submit", sendChat);
+
 // клавіатура в сесії повторення: Enter/1/2/Escape
 window.addEventListener("keydown", (e) => {
+  if (!chatOverlay.hidden) {          // чат зверху — клавіші повторення не діють
+    if (e.key === "Escape") chatOverlay.hidden = true;
+    return;
+  }
   if (overlay.hidden) return;
   if (e.key === "Escape") {
     closeReview();

@@ -19,6 +19,33 @@ DB_PATH = BASE_DIR / "dictionary.db"
 app = Flask(__name__)
 
 
+def load_env():
+    """Мінімальний завантажувач .env — без залежності від python-dotenv."""
+    env_file = BASE_DIR / ".env"
+    if not env_file.exists():
+        return
+    # utf-8-sig: Блокнот і PowerShell на Windows пишуть BOM — з'їдаємо його
+    for line in env_file.read_text(encoding="utf-8-sig").splitlines():
+        line = line.strip()
+        if line and not line.startswith("#") and "=" in line:
+            key, value = line.split("=", 1)
+            os.environ.setdefault(key.strip(), value.strip())
+
+
+load_env()
+
+try:
+    import anthropic
+    _chat_client = anthropic.Anthropic() if os.environ.get("ANTHROPIC_API_KEY") else None
+except ImportError:
+    anthropic = None
+    _chat_client = None
+
+CHAT_MODEL = "claude-sonnet-5"
+CHAT_MAX_TOKENS = 2048
+CHAT_HISTORY_LIMIT = 30   # скільки останніх повідомлень відправляти моделі
+
+
 # ---------- database ----------
 
 def get_db():
@@ -68,6 +95,15 @@ def init_db():
                 due_at TEXT NOT NULL,
                 reviewed_at TEXT NOT NULL,
                 PRIMARY KEY (word_uuid, direction)
+            )
+        """)
+        # історія чату з репетитором (одна розмова, один користувач)
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS chat_messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                role TEXT NOT NULL,
+                content TEXT NOT NULL,
+                created_at TEXT NOT NULL
             )
         """)
 
@@ -246,6 +282,152 @@ def api_delete(word_uuid):
     db.execute("DELETE FROM reviews WHERE word_uuid = ?", (word_uuid,))
     db.commit()
     return {"ok": True}
+
+
+# ---------- чат з репетитором (Claude) ----------
+
+def srs_status(level):
+    if level <= 0:
+        return "нове"
+    if level <= 3:
+        return "вивчається"
+    return "закріплене"
+
+
+CHAT_VOCAB_LIMIT = 300   # межа слів у промпті, щоб контекст не роздувався
+
+
+def build_tutor_system(db):
+    """Системний промпт зі словником учня і його SRS-прогресом.
+
+    Треновані слова (є прогрес SRS) вкладаються всі — це активний набір учня.
+    Нетреновані — лише останні додані, до загальної межі CHAT_VOCAB_LIMIT;
+    про решту модель дізнається з підсумкового рядка.
+    """
+    words = db.execute("SELECT * FROM words ORDER BY id").fetchall()
+    levels = {}
+    for row in db.execute(
+        "SELECT word_uuid, MAX(level) AS lvl FROM reviews GROUP BY word_uuid"
+    ):
+        levels[row["word_uuid"]] = row["lvl"]
+
+    trained = [w for w in words if w["uuid"] in levels]
+    untrained = [w for w in words if w["uuid"] not in levels]
+    room = max(0, CHAT_VOCAB_LIMIT - len(trained))
+    shown_untrained = untrained[-room:] if room else []
+    hidden = len(untrained) - len(shown_untrained)
+
+    def word_line(w):
+        line = (f"- {w['georgian']} — {w['translation']} "
+                f"[{srs_status(levels.get(w['uuid'], 0))}]")
+        if w["tags"]:
+            line += f" (теги: {w['tags']})"
+        if w["example"]:
+            line += f" | приклад: {w['example']}"
+        return line
+
+    parts = [f"Усього слів у словнику: {len(words)}; "
+             f"з них у тренуванні (SRS): {len(trained)}."]
+    if trained:
+        parts.append("Слова, які учень активно тренує:")
+        parts.extend(word_line(w) for w in trained)
+    if shown_untrained:
+        parts.append("Останні додані слова (ще не тренувалися):")
+        parts.extend(word_line(w) for w in shown_untrained)
+    if hidden > 0:
+        parts.append(f"… та ще {hidden} слів у черзі на вивчення (не показані, "
+                     f"щоб не роздувати контекст).")
+    vocab = "\n".join(parts) if words else "(словник поки порожній)"
+    return f"""\
+Ти — привітний персональний репетитор грузинської мови. Твій учень — україномовний, \
+вчить грузинську з нуля на LingWing і веде власний словник; цей чат вбудований у \
+застосунок-словник, тож ти бачиш його актуальний словниковий запас нижче.
+
+Як поводитись:
+- Спілкуйся українською; грузинську вживай для прикладів, вправ і розмовної практики, \
+підлаштовуючись під рівень учня (видно зі словника нижче).
+- Якщо учень пише грузинською — відповідай простою грузинською з українським перекладом \
+у дужках, м'яко виправляй помилки і коротко пояснюй відповідне правило.
+- Пояснюй граматику простими словами з прикладами; порівнюй з українською, де це допомагає.
+- Будуй розмову і приклади насамперед на словах зі словника учня (особливо зі статусом \
+"вивчається"); нові слова поза словником додавай потроху, 1-2 за раз, одразу з перекладом.
+- Це мобільний чат: відповідай стисло (зазвичай 2-6 речень), без таблиць, заголовків і \
+жирного тексту. Список — лише коли він справді доречний.
+- Не вигадуй прогрес учня — спирайся лише на словник нижче.
+
+Словник учня (грузинське слово — переклад [статус SRS]; статуси: нове → вивчається → закріплене):
+{vocab}"""
+
+
+@app.route("/api/chat", methods=["GET"])
+def api_chat_history():
+    db = get_db()
+    rows = db.execute(
+        "SELECT role, content FROM chat_messages ORDER BY id").fetchall()
+    return {"configured": _chat_client is not None,
+            "messages": [{"role": r["role"], "content": r["content"]} for r in rows]}
+
+
+@app.route("/api/chat", methods=["DELETE"])
+def api_chat_clear():
+    db = get_db()
+    db.execute("DELETE FROM chat_messages")
+    db.commit()
+    return {"ok": True}
+
+
+@app.route("/api/chat", methods=["POST"])
+def api_chat_send():
+    if _chat_client is None:
+        return {"error": "ANTHROPIC_API_KEY не налаштований — додай його у файл .env "
+                         "поруч з app.py і перезапусти сервер"}, 503
+    payload = request.get_json(silent=True) or {}
+    text = (payload.get("message") or "").strip()
+    if not text:
+        return {"error": "порожнє повідомлення"}, 400
+
+    db = get_db()
+    db.execute(
+        "INSERT INTO chat_messages (role, content, created_at) VALUES (?, ?, ?)",
+        ("user", text, utcnow()))
+    db.commit()
+    rows = db.execute(
+        "SELECT role, content FROM chat_messages ORDER BY id DESC LIMIT ?",
+        (CHAT_HISTORY_LIMIT,)).fetchall()
+    history = [{"role": r["role"], "content": r["content"]} for r in reversed(rows)]
+    while history and history[0]["role"] != "user":
+        history.pop(0)   # історія для API має починатися з user-повідомлення
+    system_prompt = build_tutor_system(db)
+
+    def generate():
+        collected = []
+        try:
+            with _chat_client.messages.stream(
+                model=CHAT_MODEL,
+                max_tokens=CHAT_MAX_TOKENS,
+                system=[{"type": "text", "text": system_prompt,
+                         "cache_control": {"type": "ephemeral"}}],
+                messages=history,
+            ) as stream:
+                for chunk in stream.text_stream:
+                    collected.append(chunk)
+                    yield chunk
+        except anthropic.APIStatusError as e:
+            yield (f"⚠️ Помилка API ({e.status_code}) — перевір ключ і баланс "
+                   f"на console.anthropic.com")
+        except anthropic.APIConnectionError:
+            yield "⚠️ Сервер не зміг з'єднатися з api.anthropic.com — перевір інтернет."
+        finally:
+            # генератор виконується вже поза контекстом запиту Flask,
+            # тому тут окреме з'єднання з базою, а не get_db()
+            if collected:
+                with sqlite3.connect(DB_PATH) as conn:
+                    conn.execute(
+                        "INSERT INTO chat_messages (role, content, created_at) "
+                        "VALUES (?, ?, ?)",
+                        ("assistant", "".join(collected), utcnow()))
+
+    return Response(generate(), mimetype="text/plain; charset=utf-8")
 
 
 @app.route("/edit/<int:word_id>", methods=["GET", "POST"])
