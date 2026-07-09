@@ -91,5 +91,7 @@ def install_cert():
     return send_file(
         caroot / "rootCA.pem",
         mimetype="application/x-x509-ca-cert",
-        download_name="mkcert-rootCA.pem",
+        # .crt, а не .pem: той самий вміст, але Windows асоціює майстер
+        # імпорту сертифікатів (подвійний клік) лише з .cer/.crt-розширеннями
+        download_name="mkcert-rootCA.crt",
     )
