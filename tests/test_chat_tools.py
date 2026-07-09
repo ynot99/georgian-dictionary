@@ -1,10 +1,10 @@
 """Тест виконання інструмента add_word (без звернення до Claude API — безкоштовно).
 
-Викликає execute_add_word() напряму з app.py, як це робить чат при tool_use.
-Створює лише тестове слово (uuid перевіряється й видаляється) — безпечно
-проти реальної бази. Потребує запущений сервер лише опосередковано (та сама
-dictionary.db, що й app.py; сервер не обов'язково має бути живий для цього
-тесту, але для одноманітності з іншими тестами перевіряємо його наявність).
+Викликає execute_add_word() напряму з server/chat.py, як це робить чат при
+tool_use. Створює лише тестове слово (uuid перевіряється й видаляється) —
+безпечно проти реальної бази. Потребує запущений сервер лише опосередковано
+(та сама dictionary.db, що й app.py; сервер не обов'язково має бути живий для
+цього тесту, але для одноманітності з іншими тестами перевіряємо його наявність).
 """
 import sqlite3
 import sys
@@ -13,15 +13,16 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
-import app as dict_app  # noqa: E402
+from server import chat as dict_chat  # noqa: E402
+from server.db import DB_PATH  # noqa: E402
 
-conn = sqlite3.connect(dict_app.DB_PATH)
+conn = sqlite3.connect(DB_PATH)
 conn.row_factory = sqlite3.Row
 
 before = conn.execute("SELECT COUNT(*) FROM words").fetchone()[0]
 
 # успішне додавання
-result = dict_app.execute_add_word(conn, {
+result = dict_chat.execute_add_word(conn, {
     "georgian": "test-tool-word", "translation": "тестовий переклад",
     "example": "приклад", "tags": " Тест, тест ",
 })
@@ -40,7 +41,7 @@ assert after == before + 1, (before, after)
 print(f"3. кількість слів зросла на 1: {before} -> {after}")
 
 # невалідний ввід: без обов'язкових полів -> ok: False, нічого не пишеться в базу
-result = dict_app.execute_add_word(conn, {"georgian": "", "translation": "щось"})
+result = dict_chat.execute_add_word(conn, {"georgian": "", "translation": "щось"})
 assert result == {"ok": False, "error": "потрібні і georgian, і translation"}, result
 after2 = conn.execute("SELECT COUNT(*) FROM words").fetchone()[0]
 assert after2 == after, "невалідний виклик не має нічого додавати"

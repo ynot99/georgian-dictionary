@@ -1,0 +1,402 @@
+"""Чат з репетитором (Claude): tool use, системний промпт, нотатки з граматики."""
+import json
+import os
+import sqlite3
+import uuid as uuidlib
+
+from flask import Blueprint, Response, request
+
+from .db import BASE_DIR, DB_PATH, get_db, normalize_tags, utcnow
+
+
+def load_env():
+    """Мінімальний завантажувач .env — без залежності від python-dotenv."""
+    env_file = BASE_DIR / ".env"
+    if not env_file.exists():
+        return
+    # utf-8-sig: Блокнот і PowerShell на Windows пишуть BOM — з'їдаємо його
+    for line in env_file.read_text(encoding="utf-8-sig").splitlines():
+        line = line.strip()
+        if line and not line.startswith("#") and "=" in line:
+            key, value = line.split("=", 1)
+            os.environ.setdefault(key.strip(), value.strip())
+
+
+load_env()
+
+try:
+    import anthropic
+
+    _chat_client = (
+        anthropic.Anthropic() if os.environ.get("ANTHROPIC_API_KEY") else None
+    )
+except ImportError:
+    anthropic = None
+    _chat_client = None
+
+CHAT_MODEL = "claude-sonnet-5"
+CHAT_MAX_TOKENS = 2048
+CHAT_HISTORY_LIMIT = 30  # скільки останніх повідомлень відправляти моделі
+CHAT_TOOL_LOOP_LIMIT = 3  # запобіжник від зациклення викликів інструментів
+CHAT_VOCAB_LIMIT = 300  # межа слів у промпті, щоб контекст не роздувався
+CHAT_NOTES_TITLE_LIMIT = 100  # межа заголовків нотаток у промпті
+
+ADD_WORD_TOOL = {
+    "name": "add_word",
+    "description": (
+        "Додає нове грузинське слово в словник учня з перекладом. Використовуй, "
+        "коли учень явно просить додати/запам'ятати слово, або коли в розмові "
+        "з'являється корисне нове слово і учень погоджується його зберегти."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "georgian": {"type": "string", "description": "Слово чи фраза грузинською"},
+            "translation": {"type": "string", "description": "Переклад українською"},
+            "example": {
+                "type": "string",
+                "description": "Приклад речення грузинською з перекладом (необов'язково)",
+            },
+            "tags": {
+                "type": "string",
+                "description": "Теги через кому, напр. 'їжа, дієслова' (необов'язково)",
+            },
+        },
+        "required": ["georgian", "translation"],
+    },
+}
+
+
+def execute_add_word(conn, tool_input):
+    georgian = (tool_input.get("georgian") or "").strip()
+    translation = (tool_input.get("translation") or "").strip()
+    if not georgian or not translation:
+        return {"ok": False, "error": "потрібні і georgian, і translation"}
+    word_uuid = str(uuidlib.uuid4())
+    conn.execute(
+        "INSERT INTO words (uuid, georgian, translation, example, tags, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (
+            word_uuid,
+            georgian,
+            translation,
+            (tool_input.get("example") or "").strip(),
+            normalize_tags(tool_input.get("tags")),
+            utcnow(),
+        ),
+    )
+    conn.commit()
+    return {"ok": True, "uuid": word_uuid, "georgian": georgian, "translation": translation}
+
+
+SAVE_GRAMMAR_NOTE_TOOL = {
+    "name": "save_grammar_note",
+    "description": (
+        "Зберігає нове граматичне правило як окрему нотатку, щоб учень міг "
+        "повернутись до неї пізніше. Використовуй, коли пояснюєш правило, яке "
+        "варто зберегти для повторного звернення — особливо якщо учень явно "
+        "просить 'збережи це правило', або та сама тема виникає повторно. "
+        "Перед створенням перевір список наявних нотаток у системному "
+        "промпті, щоб не дублювати тему. Після створення (чи посилаючись на "
+        "наявну нотатку зі списку) згадай її в тексті відповіді у форматі "
+        "[[note:ID|Назва]] — застосунок покаже це як клікабельне посилання."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "title": {
+                "type": "string",
+                "description": "Коротка назва правила, напр. 'Родовий відмінок при запереченні'",
+            },
+            "content": {
+                "type": "string",
+                "description": "Повне пояснення правила з прикладами (кілька речень)",
+            },
+        },
+        "required": ["title", "content"],
+    },
+}
+
+GET_GRAMMAR_NOTE_TOOL = {
+    "name": "get_grammar_note",
+    "description": (
+        "Повертає повний текст раніше збереженої нотатки з граматики за її id "
+        "(id видно у списку наявних нотаток у системному промпті). Використовуй, "
+        "коли треба процитувати чи розширити вже збережене правило."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {"id": {"type": "integer", "description": "id нотатки"}},
+        "required": ["id"],
+    },
+}
+
+
+def execute_save_grammar_note(conn, tool_input):
+    title = (tool_input.get("title") or "").strip()
+    content = (tool_input.get("content") or "").strip()
+    if not title or not content:
+        return {"ok": False, "error": "потрібні і title, і content"}
+    cur = conn.execute(
+        "INSERT INTO grammar_notes (title, content, created_at) VALUES (?, ?, ?)",
+        (title, content, utcnow()),
+    )
+    conn.commit()
+    return {"ok": True, "id": cur.lastrowid, "title": title}
+
+
+def execute_get_grammar_note(conn, tool_input):
+    try:
+        note_id = int(tool_input.get("id"))
+    except (TypeError, ValueError):
+        return {"ok": False, "error": "невалідний id"}
+    row = conn.execute(
+        "SELECT title, content FROM grammar_notes WHERE id = ?", (note_id,)
+    ).fetchone()
+    if row is None:
+        return {"ok": False, "error": "нотатку не знайдено"}
+    return {"ok": True, "id": note_id, "title": row["title"], "content": row["content"]}
+
+
+CHAT_TOOLS = [ADD_WORD_TOOL, SAVE_GRAMMAR_NOTE_TOOL, GET_GRAMMAR_NOTE_TOOL]
+CHAT_TOOL_EXECUTORS = {
+    "add_word": execute_add_word,
+    "save_grammar_note": execute_save_grammar_note,
+    "get_grammar_note": execute_get_grammar_note,
+}
+
+
+def srs_status(level):
+    if level <= 0:
+        return "нове"
+    if level <= 3:
+        return "вивчається"
+    return "закріплене"
+
+
+def build_tutor_system(db):
+    """Системний промпт зі словником учня, його SRS-прогресом і нотатками з граматики.
+
+    Треновані слова (є прогрес SRS) вкладаються всі — це активний набір учня.
+    Нетреновані — лише останні додані, до загальної межі CHAT_VOCAB_LIMIT;
+    про решту модель дізнається з підсумкового рядка. Нотатки — лише назви
+    (id + title), не повний текст, щоб не роздувати контекст.
+    """
+    words = db.execute("SELECT * FROM words ORDER BY id").fetchall()
+    levels = {}
+    for row in db.execute(
+        "SELECT word_uuid, MAX(level) AS lvl FROM reviews GROUP BY word_uuid"
+    ):
+        levels[row["word_uuid"]] = row["lvl"]
+
+    trained = [w for w in words if w["uuid"] in levels]
+    untrained = [w for w in words if w["uuid"] not in levels]
+    room = max(0, CHAT_VOCAB_LIMIT - len(trained))
+    shown_untrained = untrained[-room:] if room else []
+    hidden = len(untrained) - len(shown_untrained)
+
+    def word_line(w):
+        line = (
+            f"- {w['georgian']} — {w['translation']} "
+            f"[{srs_status(levels.get(w['uuid'], 0))}]"
+        )
+        if w["tags"]:
+            line += f" (теги: {w['tags']})"
+        if w["example"]:
+            line += f" | приклад: {w['example']}"
+        return line
+
+    parts = [
+        f"Усього слів у словнику: {len(words)}; "
+        f"з них у тренуванні (SRS): {len(trained)}."
+    ]
+    if trained:
+        parts.append("Слова, які учень активно тренує:")
+        parts.extend(word_line(w) for w in trained)
+    if shown_untrained:
+        parts.append("Останні додані слова (ще не тренувалися):")
+        parts.extend(word_line(w) for w in shown_untrained)
+    if hidden > 0:
+        parts.append(
+            f"… та ще {hidden} слів у черзі на вивчення (не показані, "
+            f"щоб не роздувати контекст)."
+        )
+    vocab = "\n".join(parts) if words else "(словник поки порожній)"
+
+    note_rows = db.execute(
+        "SELECT id, title FROM grammar_notes ORDER BY id DESC LIMIT ?",
+        (CHAT_NOTES_TITLE_LIMIT,),
+    ).fetchall()
+    total_notes = db.execute("SELECT COUNT(*) AS c FROM grammar_notes").fetchone()["c"]
+    if note_rows:
+        note_lines = [f"- [{r['id']}] {r['title']}" for r in note_rows]
+        if total_notes > len(note_rows):
+            note_lines.append(f"… та ще {total_notes - len(note_rows)} старіших нотаток.")
+        notes_block = "\n".join(note_lines)
+    else:
+        notes_block = "(нотаток поки немає)"
+
+    return f"""\
+Ти — привітний персональний репетитор грузинської мови. Твій учень — україномовний, \
+вчить грузинську з нуля на LingWing і веде власний словник; цей чат вбудований у \
+застосунок-словник, тож ти бачиш його актуальний словниковий запас нижче.
+
+Як поводитись:
+- Спілкуйся українською; грузинську вживай для прикладів, вправ і розмовної практики, \
+підлаштовуючись під рівень учня (видно зі словника нижче).
+- Якщо учень пише грузинською — відповідай простою грузинською з українським перекладом \
+у дужках, м'яко виправляй помилки і коротко пояснюй відповідне правило.
+- Пояснюй граматику простими словами з прикладами; порівнюй з українською, де це допомагає.
+- Будуй розмову і приклади насамперед на словах зі словника учня (особливо зі статусом \
+"вивчається"); нові слова поза словником додавай потроху, 1-2 за раз, одразу з перекладом.
+- Це мобільний чат: відповідай стисло (зазвичай 2-6 речень), без таблиць, заголовків і \
+жирного тексту. Список — лише коли він справді доречний.
+- Не вигадуй прогрес учня — спирайся лише на словник нижче.
+- Якщо учень просить додати/запам'ятати слово, або сам погоджується зберегти нове слово \
+з розмови — використай інструмент add_word (переклад і, якщо доречно, приклад та теги), \
+а потім коротко підтверди, що додав.
+- Коли пояснюєш граматичне правило, яке варто зберегти для повторного звернення \
+(особливо якщо учень просить "збережи це правило", або тема повторюється) — використай \
+save_grammar_note. Спочатку перевір список наявних нотаток нижче, щоб не дублювати тему; \
+якщо схожа вже є, посилайся на неї замість створення нової (get_grammar_note — щоб \
+підтягнути повний текст, якщо треба процитувати). Посилаючись на нову чи наявну нотатку в \
+тексті відповіді, вживай формат [[note:ID|Назва]] — застосунок покаже це як клікабельне \
+посилання.
+
+Словник учня (грузинське слово — переклад [статус SRS]; статуси: нове → вивчається → закріплене):
+{vocab}
+
+Наявні нотатки з граматики (id — назва):
+{notes_block}"""
+
+
+chat_bp = Blueprint("chat", __name__)
+
+
+@chat_bp.route("/api/notes", methods=["GET"])
+def api_notes_list():
+    db = get_db()
+    rows = db.execute(
+        "SELECT id, title, content, created_at FROM grammar_notes ORDER BY id DESC"
+    ).fetchall()
+    return {"notes": [dict(r) for r in rows]}
+
+
+@chat_bp.route("/api/notes/<int:note_id>", methods=["DELETE"])
+def api_notes_delete(note_id):
+    db = get_db()
+    db.execute("DELETE FROM grammar_notes WHERE id = ?", (note_id,))
+    db.commit()
+    return {"ok": True}
+
+
+@chat_bp.route("/api/chat", methods=["GET"])
+def api_chat_history():
+    db = get_db()
+    rows = db.execute("SELECT role, content FROM chat_messages ORDER BY id").fetchall()
+    return {
+        "configured": _chat_client is not None,
+        "messages": [{"role": r["role"], "content": r["content"]} for r in rows],
+    }
+
+
+@chat_bp.route("/api/chat", methods=["DELETE"])
+def api_chat_clear():
+    db = get_db()
+    db.execute("DELETE FROM chat_messages")
+    db.commit()
+    return {"ok": True}
+
+
+@chat_bp.route("/api/chat", methods=["POST"])
+def api_chat_send():
+    if _chat_client is None:
+        return {
+            "error": "ANTHROPIC_API_KEY не налаштований — додай його у файл .env "
+            "поруч з app.py і перезапусти сервер"
+        }, 503
+    payload = request.get_json(silent=True) or {}
+    text = (payload.get("message") or "").strip()
+    if not text:
+        return {"error": "порожнє повідомлення"}, 400
+
+    db = get_db()
+    db.execute(
+        "INSERT INTO chat_messages (role, content, created_at) VALUES (?, ?, ?)",
+        ("user", text, utcnow()),
+    )
+    db.commit()
+    rows = db.execute(
+        "SELECT role, content FROM chat_messages ORDER BY id DESC LIMIT ?",
+        (CHAT_HISTORY_LIMIT,),
+    ).fetchall()
+    history = [{"role": r["role"], "content": r["content"]} for r in reversed(rows)]
+    while history and history[0]["role"] != "user":
+        history.pop(0)  # історія для API має починатися з user-повідомлення
+    system_prompt = build_tutor_system(db)
+
+    def generate():
+        collected = []
+        messages = list(history)
+        try:
+            for _ in range(CHAT_TOOL_LOOP_LIMIT):
+                with _chat_client.messages.stream(
+                    model=CHAT_MODEL,
+                    max_tokens=CHAT_MAX_TOKENS,
+                    system=[
+                        {
+                            "type": "text",
+                            "text": system_prompt,
+                            "cache_control": {"type": "ephemeral"},
+                        }
+                    ],
+                    tools=CHAT_TOOLS,
+                    messages=messages,
+                ) as stream:
+                    for chunk in stream.text_stream:
+                        collected.append(chunk)
+                        yield chunk
+                    final = stream.get_final_message()
+
+                if final.stop_reason != "tool_use":
+                    break
+
+                messages.append({"role": "assistant", "content": final.content})
+                tool_results = []
+                # генератор виконується поза контекстом запиту Flask,
+                # тому окреме з'єднання з базою, а не get_db()
+                with sqlite3.connect(DB_PATH) as conn:
+                    conn.row_factory = sqlite3.Row
+                    for block in final.content:
+                        if block.type != "tool_use":
+                            continue
+                        executor = CHAT_TOOL_EXECUTORS.get(block.name)
+                        if executor is None:
+                            result = {"ok": False, "error": f"невідомий інструмент {block.name}"}
+                        else:
+                            result = executor(conn, block.input)
+                        tool_results.append({
+                            "type": "tool_result",
+                            "tool_use_id": block.id,
+                            "content": json.dumps(result, ensure_ascii=False),
+                        })
+                messages.append({"role": "user", "content": tool_results})
+        except anthropic.APIStatusError as e:
+            yield (
+                f"⚠️ Помилка API ({e.status_code}) — перевір ключ і баланс "
+                f"на console.anthropic.com"
+            )
+        except anthropic.APIConnectionError:
+            yield "⚠️ Сервер не зміг з'єднатися з api.anthropic.com — перевір інтернет."
+        finally:
+            # генератор виконується вже поза контекстом запиту Flask,
+            # тому тут окреме з'єднання з базою, а не get_db()
+            if collected:
+                with sqlite3.connect(DB_PATH) as conn:
+                    conn.execute(
+                        "INSERT INTO chat_messages (role, content, created_at) "
+                        "VALUES (?, ?, ?)",
+                        ("assistant", "".join(collected), utcnow()),
+                    )
+
+    return Response(generate(), mimetype="text/plain; charset=utf-8")

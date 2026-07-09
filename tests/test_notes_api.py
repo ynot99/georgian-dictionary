@@ -11,34 +11,35 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
-import app as dict_app  # noqa: E402
+from server import chat as dict_chat  # noqa: E402
+from server.db import DB_PATH  # noqa: E402
 from _client import check_server, req  # noqa: E402
 
 check_server()
 
 # --- юніт-тести execute_* напряму (без HTTP, без Claude) ---
 
-conn = sqlite3.connect(dict_app.DB_PATH)
+conn = sqlite3.connect(DB_PATH)
 conn.row_factory = sqlite3.Row
 before = conn.execute("SELECT COUNT(*) FROM grammar_notes").fetchone()[0]
 
-result = dict_app.execute_save_grammar_note(conn, {
+result = dict_chat.execute_save_grammar_note(conn, {
     "title": "test-note-родовий відмінок", "content": "Пояснення правила з прикладами.",
 })
 assert result["ok"] is True and result["id"], result
 note_id = result["id"]
 print("1. save_grammar_note створює нотатку і повертає id")
 
-fetched = dict_app.execute_get_grammar_note(conn, {"id": note_id})
+fetched = dict_chat.execute_get_grammar_note(conn, {"id": note_id})
 assert fetched == {"ok": True, "id": note_id, "title": "test-note-родовий відмінок",
                     "content": "Пояснення правила з прикладами."}, fetched
 print("2. get_grammar_note повертає повний текст за id")
 
-missing = dict_app.execute_get_grammar_note(conn, {"id": 999999})
+missing = dict_chat.execute_get_grammar_note(conn, {"id": 999999})
 assert missing == {"ok": False, "error": "нотатку не знайдено"}, missing
 print("3. get_grammar_note для неіснуючого id -> ok: False")
 
-bad = dict_app.execute_save_grammar_note(conn, {"title": "", "content": "щось"})
+bad = dict_chat.execute_save_grammar_note(conn, {"title": "", "content": "щось"})
 assert bad == {"ok": False, "error": "потрібні і title, і content"}, bad
 print("4. save_grammar_note без title -> ok: False, нічого не створюється")
 
@@ -57,7 +58,7 @@ _, base = req("/api/notes")
 base_count = len(base["notes"])
 print(f"7. базовий стан: {base_count} нотаток")
 
-conn = sqlite3.connect(dict_app.DB_PATH)
+conn = sqlite3.connect(DB_PATH)
 conn.execute(
     "INSERT INTO grammar_notes (title, content, created_at) VALUES (?, ?, ?)",
     ("test-note-http", "Текст для http-тесту", "2026-07-11 10:00:00"),
