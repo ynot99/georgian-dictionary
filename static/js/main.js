@@ -48,6 +48,9 @@ rvStrict.addEventListener("click", () => {
   reviewStrict = !reviewStrict;
   localStorage.setItem("reviewStrict", reviewStrict ? "1" : "0");
   updateModeBtn();
+  // клік по кнопці забирає фокус з поля вводу — повертаємо його назад,
+  // якщо картка ще не розкрита (поле вводу досі на екрані)
+  if (!rvType.hidden) rvInput.focus();
 });
 
 function closeChat() {
