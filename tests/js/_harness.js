@@ -39,6 +39,7 @@ function runInAppContext(testCode) {
   const storage = {};
   global.localStorage = {
     getItem: (k) => (k in storage ? storage[k] : null),
+    removeItem: (k) => { delete storage[k]; },
     setItem: (k, v) => { storage[k] = v; },
   };
   // Node 20+ вже має вбудовані crypto/fetch/Blob як глобальні lazy-getter'и —

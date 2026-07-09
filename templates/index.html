@@ -89,11 +89,12 @@
   .wod {
     background: var(--card); border: 1px solid var(--border);
     border-radius: 12px; padding: 10px 14px; margin-bottom: 12px;
-    font-size: .9rem;
+    font-size: .9rem; cursor: pointer;
   }
   .wod .wod-label { color: var(--muted); font-size: .75rem; margin-bottom: 2px; }
   .wod .wod-ka { font-weight: 600; font-size: 1.05rem; }
   .wod .wod-tr { color: var(--muted); }
+  .wod .wod-hint { color: var(--muted); font-style: italic; }
   .stats {
     background: var(--card); border: 1px solid var(--border);
     border-radius: 12px; padding: 12px 14px; margin-bottom: 12px;
@@ -791,16 +792,31 @@ function wordOfDay() {
   return sorted[h % sorted.length];
 }
 
+// переклад слова дня відкривається/ховається по тапу; стан зберігається на
+// весь день (localStorage), тож повторний заход того ж дня його не скидає
+function isWodRevealed() {
+  return localStorage.getItem("wodRevealedDate") === localDateKey();
+}
+
+function toggleWod() {
+  if (isWodRevealed()) localStorage.removeItem("wodRevealedDate");
+  else localStorage.setItem("wodRevealedDate", localDateKey());
+  render();
+}
+
 function renderWod() {
   const box = document.getElementById("wod");
   const w = wordOfDay();
   box.hidden = !w;
   if (!w) return;
-  box.replaceChildren(
-    el("div", "wod-label", "Слово дня"),
-    el("div", "wod-ka", w.georgian),
-    el("div", "wod-tr", w.translation + (w.example ? " · " + w.example : "")),
-  );
+  const parts = [el("div", "wod-label", "Слово дня"), el("div", "wod-ka", w.georgian)];
+  if (isWodRevealed()) {
+    parts.push(el("div", "wod-tr", w.translation + (w.example ? " · " + w.example : "")));
+  } else {
+    parts.push(el("div", "wod-hint", "тапни, щоб побачити переклад"));
+  }
+  box.onclick = toggleWod;
+  box.replaceChildren(...parts);
 }
 
 function streakDays() {

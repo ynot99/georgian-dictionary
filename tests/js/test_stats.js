@@ -26,6 +26,14 @@ words.length = 0;
 assert.strictEqual(wordOfDay(), null, "порожній словник — нема слова дня");
 words.push(...savedWords);
 
+// переклад слова дня прихований, доки не "тапнути"; повторний тап ховає назад
+assert.strictEqual(isWodRevealed(), false, "спочатку переклад має бути прихований");
+toggleWod();
+assert.strictEqual(isWodRevealed(), true, "після тапу переклад відкритий");
+assert.strictEqual(localStorage.getItem("wodRevealedDate"), localDateKey());
+toggleWod();
+assert.strictEqual(isWodRevealed(), false, "повторний тап має сховати переклад назад");
+
 // statsData: додані за тиждень, рівні карток
 let s = statsData();
 assert.strictEqual(s.total, 3);
