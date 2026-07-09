@@ -30,6 +30,21 @@ activeTag = null;
 c = collectDue();
 assert.strictEqual(c.fresh.length, 6, "без фільтра всі картки: " + c.fresh.length);
 
+// віртуальний фільтр "проблемні слова" (LEECH_TAG) обмежує список і повторення так само, як тег
+reviews = {
+  "w2|ka2uk": { word_uuid: "w2", direction: "ka2uk", level: 0, due_at: "2020-01-01 00:00:00", reviewed_at: "2020-01-01 00:00:00", lapses: LEECH_THRESHOLD, synced: true },
+};
+assert.ok(isLeech(words[1]), "w2 має бути leech");
+assert.ok(!isLeech(words[0]) && !isLeech(words[2]), "w1/w3 не leech");
+activeTag = LEECH_TAG;
+assert.strictEqual(wordsInScope().length, 1, "фільтр leech: " + wordsInScope().length);
+assert.strictEqual(wordsInScope()[0].uuid, "w2");
+c = collectDue();
+assert.strictEqual(c.due.length, 1, "прострочена leech-картка потрапляє в due");
+assert.strictEqual(c.due[0].w.uuid, "w2");
+activeTag = null;
+reviews = {};
+
 // addWord нормалізує теги
 addWord("კატა", "кіт", "", " Тварини,тварини ");
 assert.strictEqual(words[0].tags, "тварини");

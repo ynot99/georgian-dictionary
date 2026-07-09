@@ -56,6 +56,7 @@ function tagList(w) {
 let activeTag = null;   // активний фільтр списку і повторення
 
 function wordsInScope() {
+  if (activeTag === LEECH_TAG) return words.filter(isLeech);
   return activeTag ? words.filter((w) => tagList(w).includes(activeTag)) : words;
 }
 

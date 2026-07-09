@@ -51,21 +51,29 @@ function renderTagbar() {
   for (const w of words) {
     for (const t of tagList(w)) counts.set(t, (counts.get(t) || 0) + 1);
   }
-  if (activeTag && !counts.has(activeTag)) activeTag = null;
-  tagbar.hidden = counts.size === 0;
+  const leechCount = words.filter(isLeech).length;
+  if (activeTag && activeTag !== LEECH_TAG && !counts.has(activeTag)) activeTag = null;
+  if (activeTag === LEECH_TAG && !leechCount) activeTag = null;
+  tagbar.hidden = counts.size === 0 && !leechCount;
   tagbar.replaceChildren();
-  if (!counts.size) return;
+  if (!counts.size && !leechCount) return;
   const allChip = el("button", "chip" + (activeTag === null ? " active" : ""),
     `усі (${words.length})`);
   allChip.onclick = () => { activeTag = null; render(); };
   tagbar.append(allChip);
+  if (leechCount) {
+    const leechChip = el("button", "chip" + (activeTag === LEECH_TAG ? " active" : ""),
+      `🩹 проблемні (${leechCount})`);
+    leechChip.onclick = () => { activeTag = activeTag === LEECH_TAG ? null : LEECH_TAG; render(); };
+    tagbar.append(leechChip);
+  }
   for (const [tag, n] of [...counts.entries()].sort((a, b) => b[1] - a[1])) {
     const chip = el("button", "chip" + (activeTag === tag ? " active" : ""),
       `${tag} (${n})`);
     chip.onclick = () => { activeTag = activeTag === tag ? null : tag; render(); };
     tagbar.append(chip);
   }
-  if (activeTag) {
+  if (activeTag && activeTag !== LEECH_TAG) {
     const renameBtn = el("button", "chip", "✎");
     renameBtn.title = `Перейменувати тег «${activeTag}»`;
     renameBtn.onclick = () => renameTagPrompt(activeTag);
@@ -135,7 +143,8 @@ function render() {
   const { due, fresh } = collectDue();
   const total = due.length + Math.min(fresh.length, NEW_PER_SESSION);
   const reviewBtn = document.getElementById("review-btn");
-  const label = activeTag ? `🎓 Повторення: ${activeTag}` : "🎓 Повторення";
+  const scopeLabel = activeTag === LEECH_TAG ? "проблемні" : activeTag;
+  const label = activeTag ? `🎓 Повторення: ${scopeLabel}` : "🎓 Повторення";
   reviewBtn.textContent = total ? `${label} (${total})` : label;
   reviewBtn.disabled = !total;
 }
