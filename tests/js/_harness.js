@@ -2,9 +2,16 @@
 const fs = require("fs");
 const path = require("path");
 
-const APP_SCRIPT = fs.readFileSync(
-  path.join(__dirname, "..", "..", "templates", "index.html"), "utf8"
-).match(/<script>([\s\S]*?)<\/script>/)[1];
+// Порядок має відповідати <script src> в templates/index.html — деякі файли
+// звертаються на верхньому рівні до функцій з попередніх (напр. srs.js/chat.js/
+// notes.js викликають registerKeyboardAwareOverlay з overlay.js одразу при завантаженні).
+const APP_FILES = [
+  "overlay.js", "store.js", "srs.js", "csv.js", "stats.js",
+  "render.js", "chat.js", "notes.js", "main.js",
+];
+const APP_SCRIPT = APP_FILES.map((name) =>
+  fs.readFileSync(path.join(__dirname, "..", "..", "static", "js", name), "utf8")
+).join("\n");
 
 function fakeEl() {
   return {
@@ -15,7 +22,7 @@ function fakeEl() {
   };
 }
 
-// Виконує клієнтський <script> з templates/index.html разом із переданим
+// Виконує клієнтський скрипт зі static/app.js разом із переданим
 // тестовим кодом в одній strict-mode eval-області, тож тестовий код має
 // прямий доступ до функцій і змінних застосунку (SRS, теги, CSV, тощо).
 function runInAppContext(testCode) {
