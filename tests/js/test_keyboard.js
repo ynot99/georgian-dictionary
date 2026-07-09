@@ -6,7 +6,8 @@ const assert = require("assert");
 
 const kd = window.listeners.keydown[0];
 const ev = (key) => ({ key, preventDefault() {} });
-chatOverlay.hidden = true;   // у реальному DOM атрибут hidden стоїть у HTML
+chatOverlay.hidden = true;    // у реальному DOM атрибут hidden стоїть у HTML
+notesOverlay.hidden = true;
 
 words = [{ uuid: "w1", georgian: "წყალი", translation: "вода", example: "", tags: "", created_at: "2026-07-01 10:00:00", synced: true }];
 reviews = {};

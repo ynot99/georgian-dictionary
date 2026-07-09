@@ -124,7 +124,7 @@
     background: var(--card); color: var(--text); cursor: pointer;
   }
   .btnrow button:disabled { color: var(--muted); cursor: default; }
-  #chat-btn { flex: 0 0 auto; padding: 12px 18px; }
+  #chat-btn, #notes-btn { flex: 0 0 auto; padding: 12px 18px; }
   #review-overlay {
     position: fixed; inset: 0; z-index: 10; background: var(--bg);
     display: flex; flex-direction: column;
@@ -200,6 +200,35 @@
     padding: 12px 16px; font-size: 1.1rem; font-weight: 600; border: none;
     border-radius: 8px; cursor: pointer; background: var(--accent); color: #fff;
   }
+  .note-link {
+    display: inline-flex; align-items: center; gap: 4px; margin: 2px 0;
+    padding: 4px 10px; border-radius: 999px; border: 1px solid var(--accent);
+    background: none; color: var(--accent); font-size: .85rem; cursor: pointer;
+    font-family: inherit;
+  }
+  #notes-overlay {
+    position: fixed; inset: 0; z-index: 12; background: var(--bg);
+    display: flex; flex-direction: column;
+    max-width: 560px; margin: 0 auto; padding: 12px;
+  }
+  #notes-log {
+    flex: 1; overflow-y: auto; display: flex; flex-direction: column;
+    gap: 10px; padding: 4px 0 16px; min-height: 0;
+  }
+  .note-card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 12px; padding: 12px 14px;
+  }
+  .note-card.highlight { border-color: var(--accent); }
+  .note-card .note-title {
+    font-weight: 600; margin-bottom: 6px; display: flex;
+    justify-content: space-between; align-items: flex-start; gap: 8px;
+  }
+  .note-card .note-content { white-space: pre-wrap; overflow-wrap: anywhere; font-size: .95rem; }
+  .note-card .note-del {
+    background: none; border: none; color: var(--muted); cursor: pointer;
+    font-size: .9rem; flex-shrink: 0;
+  }
   .rv-actions { padding: 16px 0 8px; display: flex; gap: 10px; }
   .rv-actions button {
     flex: 1; padding: 16px; font-size: 1.05rem; font-weight: 600;
@@ -232,6 +261,7 @@
   <div class="btnrow">
     <button type="button" id="review-btn">🎓 Повторення</button>
     <button type="button" id="chat-btn">💬 Чат</button>
+    <button type="button" id="notes-btn">📖 Нотатки</button>
   </div>
 
   <div class="tagbar" id="tagbar" hidden></div>
@@ -288,6 +318,16 @@
       <input id="chat-input" placeholder="Напиши українською або грузинською…" autocomplete="off">
       <button type="submit" id="chat-send">➤</button>
     </form>
+  </div>
+
+  <div id="notes-overlay" hidden>
+    <div class="ch-top">
+      <span class="ch-title">📖 Нотатки з граматики</span>
+      <span class="rv-top-btns">
+        <button type="button" id="notes-close" title="Закрити">✕</button>
+      </span>
+    </div>
+    <div id="notes-log"></div>
   </div>
 
 <script>
@@ -1035,8 +1075,41 @@ const chatInput = document.getElementById("chat-input");
 let chatLoaded = false;
 let chatBusy = false;
 
+// репетитор посилається на нотатку форматом [[note:ID|Назва]] — розбираємо
+// на текст + клікабельні "жетони" без innerHTML (безпечно від довільного HTML)
+const NOTE_REF_RE = /\[\[note:(\d+)\|([^\]]+)\]\]/g;
+
+function parseNoteRefs(text) {
+  NOTE_REF_RE.lastIndex = 0;
+  const parts = [];
+  let last = 0, m;
+  while ((m = NOTE_REF_RE.exec(text))) {
+    if (m.index > last) parts.push({ type: "text", value: text.slice(last, m.index) });
+    parts.push({ type: "note", id: Number(m[1]), title: m[2] });
+    last = m.index + m[0].length;
+  }
+  if (last < text.length) parts.push({ type: "text", value: text.slice(last) });
+  return parts;
+}
+
+function renderBubbleContent(bubble, text) {
+  bubble.replaceChildren();
+  for (const part of parseNoteRefs(text)) {
+    if (part.type === "text") {
+      bubble.append(document.createTextNode(part.value));
+    } else {
+      const btn = el("button", "note-link", `📖 ${part.title}`);
+      btn.type = "button";
+      btn.onclick = () => openNotes(part.id);
+      bubble.append(btn);
+    }
+  }
+}
+
 function chatBubble(role, text) {
-  const bubble = el("div", "msg " + role, text);
+  const bubble = el("div", "msg " + role);
+  if (role === "assistant") renderBubbleContent(bubble, text);
+  else bubble.textContent = text;
   chatLog.append(bubble);
   chatLog.scrollTop = chatLog.scrollHeight;
   return bubble;
@@ -1094,16 +1167,19 @@ async function sendChat(e) {
     }
     bubble.classList.remove("pending");
     bubble.textContent = "";
+    let full = "";
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
-      bubble.textContent += decoder.decode(value, { stream: true });
+      full += decoder.decode(value, { stream: true });
+      bubble.textContent = full;   // жива типографія під час стрімінгу
       chatLog.scrollTop = chatLog.scrollHeight;
     }
-    if (!bubble.textContent) bubble.textContent = "(порожня відповідь)";
-    // репетитор міг додати слово через add_word — підтягуємо свіжий стан словника
+    if (!full) full = "(порожня відповідь)";
+    renderBubbleContent(bubble, full);   // фінальний прохід: [[note:..]] -> клікабельні жетони
+    // репетитор міг додати слово через add_word або нотатку через save_grammar_note
     sync();
   } catch (err) {
     bubble.classList.remove("pending");
@@ -1122,6 +1198,61 @@ async function clearChat() {
     if (!res.ok) throw new Error();
     chatLog.replaceChildren();
     chatNote("Історію очищено. Почнімо заново!");
+  } catch {
+    alert("Немає з'єднання з сервером.");
+  }
+}
+
+// ---------- нотатки з граматики ----------
+
+const notesOverlay = document.getElementById("notes-overlay");
+const notesLog = document.getElementById("notes-log");
+let notesCache = [];
+
+async function openNotes(highlightId) {
+  notesOverlay.hidden = false;
+  try {
+    const res = await fetchWithTimeout("/api/notes");
+    if (!res.ok) throw new Error();
+    const data = await res.json();
+    notesCache = data.notes;
+    renderNotes(highlightId);
+  } catch {
+    notesLog.replaceChildren(el("p", "ch-note",
+      "Немає з'єднання з сервером — нотатки доступні лише онлайн."));
+  }
+}
+
+function renderNotes(highlightId) {
+  notesLog.replaceChildren();
+  if (!notesCache.length) {
+    notesLog.append(el("p", "ch-note",
+      "Нотаток поки немає — репетитор створить їх у чаті, коли пояснюватиме граматику."));
+    return;
+  }
+  let toScroll = null;
+  for (const n of notesCache) {
+    const card = el("div", "note-card" + (n.id === highlightId ? " highlight" : ""));
+    const titleRow = el("div", "note-title");
+    titleRow.append(el("span", null, n.title));
+    const delBtn = el("button", "note-del", "🗑");
+    delBtn.title = "Видалити нотатку";
+    delBtn.onclick = () => deleteNote(n.id);
+    titleRow.append(delBtn);
+    card.append(titleRow, el("div", "note-content", n.content));
+    notesLog.append(card);
+    if (n.id === highlightId) toScroll = card;
+  }
+  if (toScroll) toScroll.scrollIntoView({ block: "center" });
+}
+
+async function deleteNote(id) {
+  if (!confirm("Видалити цю нотатку?")) return;
+  try {
+    const res = await fetchWithTimeout(`/api/notes/${id}`, { method: "DELETE" });
+    if (!res.ok) throw new Error();
+    notesCache = notesCache.filter((n) => n.id !== id);
+    renderNotes();
   } catch {
     alert("Немає з'єднання з сервером.");
   }
@@ -1181,9 +1312,15 @@ document.getElementById("chat-btn").addEventListener("click", openChat);
 document.getElementById("ch-close").addEventListener("click", () => { chatOverlay.hidden = true; });
 document.getElementById("ch-clear").addEventListener("click", clearChat);
 document.getElementById("chat-form").addEventListener("submit", sendChat);
+document.getElementById("notes-btn").addEventListener("click", () => openNotes());
+document.getElementById("notes-close").addEventListener("click", () => { notesOverlay.hidden = true; });
 
 // клавіатура в сесії повторення: Enter/1/2/Escape
 window.addEventListener("keydown", (e) => {
+  if (!notesOverlay.hidden) {          // нотатки можуть відкритись поверх чату
+    if (e.key === "Escape") notesOverlay.hidden = true;
+    return;
+  }
   if (!chatOverlay.hidden) {          // чат зверху — клавіші повторення не діють
     if (e.key === "Escape") chatOverlay.hidden = true;
     return;

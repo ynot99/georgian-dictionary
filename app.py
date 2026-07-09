@@ -107,6 +107,85 @@ def execute_add_word(conn, tool_input):
     return {"ok": True, "uuid": word_uuid, "georgian": georgian, "translation": translation}
 
 
+CHAT_NOTES_TITLE_LIMIT = 100  # межа заголовків нотаток у промпті
+
+SAVE_GRAMMAR_NOTE_TOOL = {
+    "name": "save_grammar_note",
+    "description": (
+        "Зберігає нове граматичне правило як окрему нотатку, щоб учень міг "
+        "повернутись до неї пізніше. Використовуй, коли пояснюєш правило, яке "
+        "варто зберегти для повторного звернення — особливо якщо учень явно "
+        "просить 'збережи це правило', або та сама тема виникає повторно. "
+        "Перед створенням перевір список наявних нотаток у системному "
+        "промпті, щоб не дублювати тему. Після створення (чи посилаючись на "
+        "наявну нотатку зі списку) згадай її в тексті відповіді у форматі "
+        "[[note:ID|Назва]] — застосунок покаже це як клікабельне посилання."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "title": {
+                "type": "string",
+                "description": "Коротка назва правила, напр. 'Родовий відмінок при запереченні'",
+            },
+            "content": {
+                "type": "string",
+                "description": "Повне пояснення правила з прикладами (кілька речень)",
+            },
+        },
+        "required": ["title", "content"],
+    },
+}
+
+GET_GRAMMAR_NOTE_TOOL = {
+    "name": "get_grammar_note",
+    "description": (
+        "Повертає повний текст раніше збереженої нотатки з граматики за її id "
+        "(id видно у списку наявних нотаток у системному промпті). Використовуй, "
+        "коли треба процитувати чи розширити вже збережене правило."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {"id": {"type": "integer", "description": "id нотатки"}},
+        "required": ["id"],
+    },
+}
+
+
+def execute_save_grammar_note(conn, tool_input):
+    title = (tool_input.get("title") or "").strip()
+    content = (tool_input.get("content") or "").strip()
+    if not title or not content:
+        return {"ok": False, "error": "потрібні і title, і content"}
+    cur = conn.execute(
+        "INSERT INTO grammar_notes (title, content, created_at) VALUES (?, ?, ?)",
+        (title, content, utcnow()),
+    )
+    conn.commit()
+    return {"ok": True, "id": cur.lastrowid, "title": title}
+
+
+def execute_get_grammar_note(conn, tool_input):
+    try:
+        note_id = int(tool_input.get("id"))
+    except (TypeError, ValueError):
+        return {"ok": False, "error": "невалідний id"}
+    row = conn.execute(
+        "SELECT title, content FROM grammar_notes WHERE id = ?", (note_id,)
+    ).fetchone()
+    if row is None:
+        return {"ok": False, "error": "нотатку не знайдено"}
+    return {"ok": True, "id": note_id, "title": row["title"], "content": row["content"]}
+
+
+CHAT_TOOLS = [ADD_WORD_TOOL, SAVE_GRAMMAR_NOTE_TOOL, GET_GRAMMAR_NOTE_TOOL]
+CHAT_TOOL_EXECUTORS = {
+    "add_word": execute_add_word,
+    "save_grammar_note": execute_save_grammar_note,
+    "get_grammar_note": execute_get_grammar_note,
+}
+
+
 # ---------- database ----------
 
 
@@ -166,6 +245,15 @@ def init_db():
             CREATE TABLE IF NOT EXISTS chat_messages (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 role TEXT NOT NULL,
+                content TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+        """)
+        # нотатки з граматики, які репетитор створює по ходу розмови
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS grammar_notes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
                 content TEXT NOT NULL,
                 created_at TEXT NOT NULL
             )
@@ -467,6 +555,20 @@ def build_tutor_system(db):
             f"щоб не роздувати контекст)."
         )
     vocab = "\n".join(parts) if words else "(словник поки порожній)"
+
+    note_rows = db.execute(
+        "SELECT id, title FROM grammar_notes ORDER BY id DESC LIMIT ?",
+        (CHAT_NOTES_TITLE_LIMIT,),
+    ).fetchall()
+    total_notes = db.execute("SELECT COUNT(*) AS c FROM grammar_notes").fetchone()["c"]
+    if note_rows:
+        note_lines = [f"- [{r['id']}] {r['title']}" for r in note_rows]
+        if total_notes > len(note_rows):
+            note_lines.append(f"… та ще {total_notes - len(note_rows)} старіших нотаток.")
+        notes_block = "\n".join(note_lines)
+    else:
+        notes_block = "(нотаток поки немає)"
+
     return f"""\
 Ти — привітний персональний репетитор грузинської мови. Твій учень — україномовний, \
 вчить грузинську з нуля на LingWing і веде власний словник; цей чат вбудований у \
@@ -486,9 +588,36 @@ def build_tutor_system(db):
 - Якщо учень просить додати/запам'ятати слово, або сам погоджується зберегти нове слово \
 з розмови — використай інструмент add_word (переклад і, якщо доречно, приклад та теги), \
 а потім коротко підтверди, що додав.
+- Коли пояснюєш граматичне правило, яке варто зберегти для повторного звернення \
+(особливо якщо учень просить "збережи це правило", або тема повторюється) — використай \
+save_grammar_note. Спочатку перевір список наявних нотаток нижче, щоб не дублювати тему; \
+якщо схожа вже є, посилайся на неї замість створення нової (get_grammar_note — щоб \
+підтягнути повний текст, якщо треба процитувати). Посилаючись на нову чи наявну нотатку в \
+тексті відповіді, вживай формат [[note:ID|Назва]] — застосунок покаже це як клікабельне \
+посилання.
 
 Словник учня (грузинське слово — переклад [статус SRS]; статуси: нове → вивчається → закріплене):
-{vocab}"""
+{vocab}
+
+Наявні нотатки з граматики (id — назва):
+{notes_block}"""
+
+
+@app.route("/api/notes", methods=["GET"])
+def api_notes_list():
+    db = get_db()
+    rows = db.execute(
+        "SELECT id, title, content, created_at FROM grammar_notes ORDER BY id DESC"
+    ).fetchall()
+    return {"notes": [dict(r) for r in rows]}
+
+
+@app.route("/api/notes/<int:note_id>", methods=["DELETE"])
+def api_notes_delete(note_id):
+    db = get_db()
+    db.execute("DELETE FROM grammar_notes WHERE id = ?", (note_id,))
+    db.commit()
+    return {"ok": True}
 
 
 @app.route("/api/chat", methods=["GET"])
@@ -551,7 +680,7 @@ def api_chat_send():
                             "cache_control": {"type": "ephemeral"},
                         }
                     ],
-                    tools=[ADD_WORD_TOOL],
+                    tools=CHAT_TOOLS,
                     messages=messages,
                 ) as stream:
                     for chunk in stream.text_stream:
@@ -571,10 +700,11 @@ def api_chat_send():
                     for block in final.content:
                         if block.type != "tool_use":
                             continue
-                        if block.name == "add_word":
-                            result = execute_add_word(conn, block.input)
-                        else:
+                        executor = CHAT_TOOL_EXECUTORS.get(block.name)
+                        if executor is None:
                             result = {"ok": False, "error": f"невідомий інструмент {block.name}"}
+                        else:
+                            result = executor(conn, block.input)
                         tool_results.append({
                             "type": "tool_result",
                             "tool_use_id": block.id,
