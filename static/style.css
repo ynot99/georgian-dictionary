@@ -64,8 +64,10 @@ form.add button {
   display: flex; align-items: flex-start; gap: 10px;
 }
 .word .body { flex: 1; min-width: 0; }
+.word .body.tappable { cursor: pointer; }
 .word .ka { font-size: 1.15rem; font-weight: 600; }
 .word .tr { color: var(--muted); margin-top: 2px; }
+.word .tr.hint { font-style: italic; }
 .word .ex { color: var(--muted); font-size: .85rem; margin-top: 6px; font-style: italic; }
 .word .pending {
   color: var(--warn); font-size: .75rem; margin-top: 6px;

@@ -1,5 +1,6 @@
 """Чат з репетитором (Claude): tool use, системний промпт, нотатки з граматики."""
 import json
+import logging
 import os
 import sqlite3
 import uuid as uuidlib
@@ -7,6 +8,15 @@ import uuid as uuidlib
 from flask import Blueprint, Response, request
 
 from .db import BASE_DIR, DB_PATH, due_date_str, get_db, normalize_tags, utcnow
+
+# Помилки чату (виконання інструментів, збій API, обрив стріму) — окремий файл,
+# щоб не губились у виводі консолі, яку ніхто не тримає відкритою постійно.
+logger = logging.getLogger(__name__)
+if not logger.handlers:
+    _handler = logging.FileHandler(BASE_DIR / "chat_errors.log", encoding="utf-8")
+    _handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+    logger.addHandler(_handler)
+    logger.setLevel(logging.ERROR)
 
 
 def load_env():
@@ -37,7 +47,7 @@ except ImportError:
 CHAT_MODEL = "claude-sonnet-5"
 CHAT_MAX_TOKENS = 2048
 CHAT_HISTORY_LIMIT = 30  # скільки останніх повідомлень відправляти моделі
-CHAT_TOOL_LOOP_LIMIT = 3  # запобіжник від зациклення викликів інструментів
+CHAT_TOOL_LOOP_LIMIT = 5  # запобіжник від зациклення викликів інструментів
 CHAT_VOCAB_LIMIT = 300  # межа слів у промпті, щоб контекст не роздувався
 CHAT_NOTES_TITLE_LIMIT = 100  # межа заголовків нотаток у промпті
 NOTE_INTERVALS = [1, 3, 7, 14, 30, 60, 120]  # ті самі інтервали (дні), що й для слів
@@ -414,20 +424,43 @@ def api_chat_send():
                         if executor is None:
                             result = {"ok": False, "error": f"невідомий інструмент {block.name}"}
                         else:
-                            result = executor(conn, block.input)
+                            try:
+                                result = executor(conn, block.input)
+                            except Exception:
+                                logger.exception("Помилка виконання інструмента %s", block.name)
+                                result = {"ok": False, "error": "внутрішня помилка інструмента"}
                         tool_results.append({
                             "type": "tool_result",
                             "tool_use_id": block.id,
                             "content": json.dumps(result, ensure_ascii=False),
                         })
                 messages.append({"role": "user", "content": tool_results})
+            else:
+                # цикл вичерпав ліміт ітерацій, а модель усе ще викликала
+                # інструменти — без цього відповідь обривається одразу після
+                # останньої дії, без жодного пояснювального тексту користувачу
+                logger.error(
+                    "Вичерпано CHAT_TOOL_LOOP_LIMIT (%d) — модель ще викликала "
+                    "інструменти", CHAT_TOOL_LOOP_LIMIT,
+                )
+                fallback = (
+                    "\n\n✅ Дію виконано, але довелось обірвати відповідь — "
+                    "забагато кроків поспіль. Постав уточнююче питання, якщо треба деталі."
+                )
+                collected.append(fallback)
+                yield fallback
         except anthropic.APIStatusError as e:
+            logger.error("Anthropic APIStatusError: %s", e)
             yield (
                 f"⚠️ Помилка API ({e.status_code}) — перевір ключ і баланс "
                 f"на console.anthropic.com"
             )
-        except anthropic.APIConnectionError:
+        except anthropic.APIConnectionError as e:
+            logger.error("Anthropic APIConnectionError: %s", e)
             yield "⚠️ Сервер не зміг з'єднатися з api.anthropic.com — перевір інтернет."
+        except Exception:
+            logger.exception("Неочікувана помилка в чаті")
+            yield "⚠️ Сталася неочікувана помилка — подробиці в chat_errors.log."
         finally:
             # генератор виконується вже поза контекстом запиту Flask,
             # тому тут окреме з'єднання з базою, а не get_db()

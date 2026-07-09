@@ -6,3 +6,4 @@ dictionary.db
 backups/
 certs/
 .env
+chat_errors.log

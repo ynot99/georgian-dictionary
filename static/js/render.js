@@ -7,6 +7,11 @@ const statusEl = document.getElementById("status");
 const statusText = document.getElementById("status-text");
 const searchEl = document.getElementById("search");
 
+// переклад/приклад у списку приховані, доки не тапнеш слово — свідомо не в
+// localStorage: скидається при кожному відкритті сторінки, але лишається
+// розкритим у межах сесії (переживає повторні render() від пошуку/синку/тощо)
+const revealedWords = new Set();
+
 function el(tag, cls, text) {
   const node = document.createElement(tag);
   if (cls) node.className = cls;
@@ -96,15 +101,26 @@ function render() {
   listEl.replaceChildren();
   for (const w of shown) {
     const card = el("div", "word");
-    const body = el("div", "body");
+    const body = el("div", "body tappable");
     const kaEl = el("div", "ka", w.georgian);
     if (isLeech(w)) {
       const badge = el("span", "leech-badge", "🩹");
       badge.title = `Проблемне слово — провалено на повтореннях ${LEECH_THRESHOLD}+ разів`;
       kaEl.append(badge);
     }
-    body.append(kaEl, el("div", "tr", w.translation));
-    if (w.example) body.append(el("div", "ex", w.example));
+    body.append(kaEl);
+    const revealed = revealedWords.has(w.uuid);
+    if (revealed) {
+      body.append(el("div", "tr", w.translation));
+      if (w.example) body.append(el("div", "ex", w.example));
+    } else {
+      body.append(el("div", "tr hint", "тапни, щоб побачити переклад"));
+    }
+    body.onclick = () => {
+      if (revealed) revealedWords.delete(w.uuid);
+      else revealedWords.add(w.uuid);
+      render();
+    };
     const wTags = tagList(w);
     if (wTags.length) {
       const tagsEl = el("div", "tags");
