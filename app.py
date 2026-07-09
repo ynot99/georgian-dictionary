@@ -1,6 +1,7 @@
 import csv
 import glob
 import io
+import json
 import os
 import shutil
 import socket
@@ -56,6 +57,54 @@ except ImportError:
 CHAT_MODEL = "claude-sonnet-5"
 CHAT_MAX_TOKENS = 2048
 CHAT_HISTORY_LIMIT = 30  # скільки останніх повідомлень відправляти моделі
+CHAT_TOOL_LOOP_LIMIT = 3  # запобіжник від зациклення викликів інструментів
+
+ADD_WORD_TOOL = {
+    "name": "add_word",
+    "description": (
+        "Додає нове грузинське слово в словник учня з перекладом. Використовуй, "
+        "коли учень явно просить додати/запам'ятати слово, або коли в розмові "
+        "з'являється корисне нове слово і учень погоджується його зберегти."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "georgian": {"type": "string", "description": "Слово чи фраза грузинською"},
+            "translation": {"type": "string", "description": "Переклад українською"},
+            "example": {
+                "type": "string",
+                "description": "Приклад речення грузинською з перекладом (необов'язково)",
+            },
+            "tags": {
+                "type": "string",
+                "description": "Теги через кому, напр. 'їжа, дієслова' (необов'язково)",
+            },
+        },
+        "required": ["georgian", "translation"],
+    },
+}
+
+
+def execute_add_word(conn, tool_input):
+    georgian = (tool_input.get("georgian") or "").strip()
+    translation = (tool_input.get("translation") or "").strip()
+    if not georgian or not translation:
+        return {"ok": False, "error": "потрібні і georgian, і translation"}
+    word_uuid = str(uuidlib.uuid4())
+    conn.execute(
+        "INSERT INTO words (uuid, georgian, translation, example, tags, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (
+            word_uuid,
+            georgian,
+            translation,
+            (tool_input.get("example") or "").strip(),
+            normalize_tags(tool_input.get("tags")),
+            utcnow(),
+        ),
+    )
+    conn.commit()
+    return {"ok": True, "uuid": word_uuid, "georgian": georgian, "translation": translation}
 
 
 # ---------- database ----------
@@ -323,6 +372,40 @@ def api_delete(word_uuid):
     return {"ok": True}
 
 
+@app.route("/api/tags/rename", methods=["POST"])
+def api_tags_rename():
+    """Перейменовує тег у всіх словах, де він зустрічається (напр. виправити одруківку).
+
+    Порівняння точне, по токену (не по підрядку) — SQL LIKE лише швидкий
+    попередній відбір кандидатів, остаточну перевірку робимо по розбитому
+    списку тегів, тож тег "їжа" не зачепить "їжа2".
+    """
+    payload = request.get_json(silent=True) or {}
+    old_tag = normalize_tags(payload.get("old"))
+    new_tag = normalize_tags(payload.get("new"))
+    if not old_tag or not new_tag or old_tag == new_tag:
+        return {"updated": 0}
+    db = get_db()
+    rows = db.execute(
+        "SELECT uuid, tags FROM words WHERE tags = ? OR tags LIKE ? OR tags LIKE ? "
+        "OR tags LIKE ?",
+        (old_tag, f"{old_tag}, %", f"%, {old_tag}", f"%, {old_tag}, %"),
+    ).fetchall()
+    updated = 0
+    for row in rows:
+        tokens = [t.strip() for t in row["tags"].split(",") if t.strip()]
+        if old_tag not in tokens:
+            continue
+        new_tokens = [new_tag if t == old_tag else t for t in tokens]
+        db.execute(
+            "UPDATE words SET tags = ? WHERE uuid = ?",
+            (normalize_tags(", ".join(new_tokens)), row["uuid"]),
+        )
+        updated += 1
+    db.commit()
+    return {"updated": updated}
+
+
 # ---------- чат з репетитором (Claude) ----------
 
 
@@ -400,6 +483,9 @@ def build_tutor_system(db):
 - Це мобільний чат: відповідай стисло (зазвичай 2-6 речень), без таблиць, заголовків і \
 жирного тексту. Список — лише коли він справді доречний.
 - Не вигадуй прогрес учня — спирайся лише на словник нижче.
+- Якщо учень просить додати/запам'ятати слово, або сам погоджується зберегти нове слово \
+з розмови — використай інструмент add_word (переклад і, якщо доречно, приклад та теги), \
+а потім коротко підтверди, що додав.
 
 Словник учня (грузинське слово — переклад [статус SRS]; статуси: нове → вивчається → закріплене):
 {vocab}"""
@@ -452,22 +538,49 @@ def api_chat_send():
 
     def generate():
         collected = []
+        messages = list(history)
         try:
-            with _chat_client.messages.stream(
-                model=CHAT_MODEL,
-                max_tokens=CHAT_MAX_TOKENS,
-                system=[
-                    {
-                        "type": "text",
-                        "text": system_prompt,
-                        "cache_control": {"type": "ephemeral"},
-                    }
-                ],
-                messages=history,
-            ) as stream:
-                for chunk in stream.text_stream:
-                    collected.append(chunk)
-                    yield chunk
+            for _ in range(CHAT_TOOL_LOOP_LIMIT):
+                with _chat_client.messages.stream(
+                    model=CHAT_MODEL,
+                    max_tokens=CHAT_MAX_TOKENS,
+                    system=[
+                        {
+                            "type": "text",
+                            "text": system_prompt,
+                            "cache_control": {"type": "ephemeral"},
+                        }
+                    ],
+                    tools=[ADD_WORD_TOOL],
+                    messages=messages,
+                ) as stream:
+                    for chunk in stream.text_stream:
+                        collected.append(chunk)
+                        yield chunk
+                    final = stream.get_final_message()
+
+                if final.stop_reason != "tool_use":
+                    break
+
+                messages.append({"role": "assistant", "content": final.content})
+                tool_results = []
+                # генератор виконується поза контекстом запиту Flask,
+                # тому окреме з'єднання з базою, а не get_db()
+                with sqlite3.connect(DB_PATH) as conn:
+                    conn.row_factory = sqlite3.Row
+                    for block in final.content:
+                        if block.type != "tool_use":
+                            continue
+                        if block.name == "add_word":
+                            result = execute_add_word(conn, block.input)
+                        else:
+                            result = {"ok": False, "error": f"невідомий інструмент {block.name}"}
+                        tool_results.append({
+                            "type": "tool_result",
+                            "tool_use_id": block.id,
+                            "content": json.dumps(result, ensure_ascii=False),
+                        })
+                messages.append({"role": "user", "content": tool_results})
         except anthropic.APIStatusError as e:
             yield (
                 f"⚠️ Помилка API ({e.status_code}) — перевір ключ і баланс "

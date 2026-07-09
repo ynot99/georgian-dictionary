@@ -907,6 +907,37 @@ function el(tag, cls, text) {
   return node;
 }
 
+async function renameTagPrompt(oldTag) {
+  const input = prompt(`Перейменувати тег «${oldTag}» на:`, oldTag);
+  if (input === null) return;
+  const newTag = normalizeTags(input);
+  if (!newTag) { alert("Порожня назва тега — скасовано."); return; }
+  if (newTag === oldTag) return;
+  try {
+    const res = await fetchWithTimeout("/api/tags/rename", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ old: oldTag, new: newTag }),
+    });
+    if (!res.ok) throw new Error();
+    const { updated } = await res.json();
+    // локальні ще не синхронізовані слова сервер не бачив — виправляємо і їх
+    for (const w of words) {
+      if (!w.synced && tagList(w).includes(oldTag)) {
+        w.tags = normalizeTags(tagList(w).map((t) => (t === oldTag ? newTag : t)).join(","));
+      }
+    }
+    activeTag = newTag;
+    online = true;
+    await sync();
+    if (updated) alert(`Перейменовано в ${updated} словах.`);
+  } catch {
+    online = false;
+    render();
+    alert("Перейменування тегів потребує з'єднання з сервером.");
+  }
+}
+
 function renderTagbar() {
   const tagbar = document.getElementById("tagbar");
   const counts = new Map();
@@ -926,6 +957,12 @@ function renderTagbar() {
       `${tag} (${n})`);
     chip.onclick = () => { activeTag = activeTag === tag ? null : tag; render(); };
     tagbar.append(chip);
+  }
+  if (activeTag) {
+    const renameBtn = el("button", "chip", "✎");
+    renameBtn.title = `Перейменувати тег «${activeTag}»`;
+    renameBtn.onclick = () => renameTagPrompt(activeTag);
+    tagbar.append(renameBtn);
   }
 }
 
@@ -1066,6 +1103,8 @@ async function sendChat(e) {
       chatLog.scrollTop = chatLog.scrollHeight;
     }
     if (!bubble.textContent) bubble.textContent = "(порожня відповідь)";
+    // репетитор міг додати слово через add_word — підтягуємо свіжий стан словника
+    sync();
   } catch (err) {
     bubble.classList.remove("pending");
     bubble.textContent = "⚠️ " + (err.message && err.message !== "Failed to fetch"

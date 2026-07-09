@@ -1,0 +1,78 @@
+"""E2E тест масового перейменування тега (/api/tags/rename).
+
+Усі тестові слова мають штучні значення "test-tagr-*" — безпечно проти
+реальної бази. Потребує запущений сервер (python app.py).
+"""
+import sys
+
+from _client import check_server, req
+
+sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+check_server()
+
+
+def by_uuid(data, u):
+    return next((w for w in data["words"] if w["uuid"] == u), None)
+
+
+_, base = req("/api/sync", "POST", {"words": [], "reviews": []})
+base_count = len(base["words"])
+print(f"0. базовий стан: {base_count} слів")
+
+# три слова: одне з тегом-одруківкою, одне з тим самим тегом + інший тег,
+# одне з "схожим" тегом-підрядком (не має зачепитись)
+req("/api/sync", "POST", {"words": [
+    {"uuid": "test-tagr-1", "georgian": "test-tagr-a", "translation": "а",
+     "example": "", "tags": "їжааа", "created_at": "2026-07-10 10:00:00"},
+    {"uuid": "test-tagr-2", "georgian": "test-tagr-b", "translation": "б",
+     "example": "", "tags": "їжааа, дієслова", "created_at": "2026-07-10 10:00:00"},
+    {"uuid": "test-tagr-3", "georgian": "test-tagr-c", "translation": "в",
+     "example": "", "tags": "їжааа2", "created_at": "2026-07-10 10:00:00"},
+], "reviews": []})
+print("1. тестові слова створено")
+
+_, c = req("/api/tags/rename", "POST", {"old": "їжааа", "new": "їжа"})
+assert c == {"updated": 2}, c
+print(f"2. перейменування: {c}")
+
+_, data = req("/api/sync", "POST", {"words": [], "reviews": []})
+w1 = by_uuid(data, "test-tagr-1")
+w2 = by_uuid(data, "test-tagr-2")
+w3 = by_uuid(data, "test-tagr-3")
+assert w1["tags"] == "їжа", w1
+assert w2["tags"] == "їжа, дієслова", w2
+assert w3["tags"] == "їжааа2", "тег-підрядок не має зачіпатись: " + w3["tags"]
+print("3. тег перейменовано точно по токену, підрядок не зачеплений")
+
+# повторне перейменування на ту саму назву — no-op
+_, c = req("/api/tags/rename", "POST", {"old": "їжа", "new": "їжа"})
+assert c == {"updated": 0}, c
+print("4. old == new -> no-op")
+
+# перейменування на тег, який у одного слова вже є — дублікат не з'являється
+req("/api/sync", "POST", {"words": [
+    {"uuid": "test-tagr-4", "georgian": "test-tagr-d", "translation": "г",
+     "example": "", "tags": "напої, дієслова", "created_at": "2026-07-10 10:00:00"}],
+    "reviews": []})
+_, c = req("/api/tags/rename", "POST", {"old": "напої", "new": "дієслова"})
+assert c == {"updated": 1}, c
+_, data = req("/api/sync", "POST", {"words": [], "reviews": []})
+w4 = by_uuid(data, "test-tagr-4")
+assert w4["tags"] == "дієслова", f"дублікат тега не має з'являтись: {w4['tags']}"
+print("5. рейменування в наявний тег дедуплікується")
+
+# порожній/невалідний ввід -> no-op
+_, c = req("/api/tags/rename", "POST", {"old": "", "new": "щось"})
+assert c == {"updated": 0}, c
+print("6. порожній old -> no-op")
+
+# прибирання
+_, data = req("/api/sync", "POST", {"words": [], "reviews": []})
+for w in data["words"]:
+    if w["uuid"].startswith("test-tagr-"):
+        req(f"/api/words/{w['uuid']}", "DELETE")
+_, data = req("/api/sync", "POST", {"words": [], "reviews": []})
+assert len(data["words"]) == base_count, len(data["words"])
+print(f"7. прибирання: знову {base_count} слів")
+
+print("\nВСЕ OK")
