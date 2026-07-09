@@ -70,6 +70,7 @@ form.add button {
 .word .pending {
   color: var(--warn); font-size: .75rem; margin-top: 6px;
 }
+.leech-badge { margin-left: 4px; font-size: .85em; cursor: default; }
 .word .actions { display: flex; flex-direction: column; gap: 6px; }
 .word .actions a, .word .actions button {
   background: none; border: none; padding: 6px; cursor: pointer;

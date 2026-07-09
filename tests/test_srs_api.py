@@ -28,13 +28,15 @@ _, data = req("/api/sync", "POST", {
 })
 r = find_review(data, "test-srs-1", "ka2uk")
 assert r and r["level"] == 1, r
-print("1. слово + оцінка (level 1) синхронізовані")
+assert r["lapses"] == 0, "lapses не передано -> 0 за замовчуванням"
+print("1. слово + оцінка (level 1) синхронізовані, lapses за замовчуванням 0")
 
 _, data = req("/api/sync", "POST", {"words": [], "reviews": [
-    {"word_uuid": "test-srs-1", "direction": "ka2uk", "level": 2,
+    {"word_uuid": "test-srs-1", "direction": "ka2uk", "level": 2, "lapses": 8,
      "due_at": "2026-07-09 11:00:00", "reviewed_at": "2026-07-06 11:00:00"}]})
 assert find_review(data, "test-srs-1", "ka2uk")["level"] == 2
-print("2. новіша оцінка перекрила стару (level 2)")
+assert find_review(data, "test-srs-1", "ka2uk")["lapses"] == 8, "lapses має зберегтись і повернутись"
+print("2. новіша оцінка перекрила стару (level 2, lapses 8)")
 
 _, data = req("/api/sync", "POST", {"words": [], "reviews": [
     {"word_uuid": "test-srs-1", "direction": "ka2uk", "level": 0,

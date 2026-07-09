@@ -7,6 +7,17 @@
 const INTERVALS = [1, 3, 7, 14, 30, 60, 120];
 const NEW_PER_SESSION = 10;   // щоб перша сесія не завалила сотнею нових карток
 const DIRECTIONS = ["ka2uk", "uk2ka"];
+// скільки провалів (за весь час, як в Anki) — і слово вважається "проблемним"
+const LEECH_THRESHOLD = 8;
+
+// на відміну від level (скидається на 0 при провалі), lapses ніколи не
+// зменшується — це довгостроковий слід "скільки разів це слово вже провалено"
+function isLeech(w) {
+  return DIRECTIONS.some((dir) => {
+    const r = reviews[w.uuid + "|" + dir];
+    return r && r.lapses >= LEECH_THRESHOLD;
+  });
+}
 
 function nowStr() {
   return new Date().toISOString().slice(0, 19).replace("T", " ");
@@ -221,6 +232,7 @@ function grade(correct) {
   const { w, dir } = currentCard;
   const key = w.uuid + "|" + dir;
   const prevLevel = reviews[key] ? reviews[key].level : 0;
+  const prevLapses = reviews[key] ? reviews[key].lapses || 0 : 0;
   const level = correct ? Math.min(prevLevel + 1, INTERVALS.length) : 0;
   reviews[key] = {
     word_uuid: w.uuid,
@@ -228,6 +240,7 @@ function grade(correct) {
     level,
     due_at: correct ? dueDateStr(INTERVALS[level - 1]) : nowStr(),
     reviewed_at: nowStr(),
+    lapses: correct ? prevLapses : prevLapses + 1,
     synced: false,
   };
   saveReviews();

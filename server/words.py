@@ -64,8 +64,9 @@ def api_sync():
         if existing is None or reviewed_at > existing["reviewed_at"]:
             db.execute(
                 "INSERT OR REPLACE INTO reviews (word_uuid, direction, level, "
-                "due_at, reviewed_at) VALUES (?, ?, ?, ?, ?)",
-                (word_uuid, direction, int(r.get("level") or 0), due_at, reviewed_at),
+                "due_at, reviewed_at, lapses) VALUES (?, ?, ?, ?, ?, ?)",
+                (word_uuid, direction, int(r.get("level") or 0), due_at, reviewed_at,
+                 int(r.get("lapses") or 0)),
             )
     db.commit()
     words = db.execute("SELECT * FROM words ORDER BY id DESC").fetchall()

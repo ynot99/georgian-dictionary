@@ -89,7 +89,13 @@ function render() {
   for (const w of shown) {
     const card = el("div", "word");
     const body = el("div", "body");
-    body.append(el("div", "ka", w.georgian), el("div", "tr", w.translation));
+    const kaEl = el("div", "ka", w.georgian);
+    if (isLeech(w)) {
+      const badge = el("span", "leech-badge", "🩹");
+      badge.title = `Проблемне слово — провалено на повтореннях ${LEECH_THRESHOLD}+ разів`;
+      kaEl.append(badge);
+    }
+    body.append(kaEl, el("div", "tr", w.translation));
     if (w.example) body.append(el("div", "ex", w.example));
     const wTags = tagList(w);
     if (wTags.length) {

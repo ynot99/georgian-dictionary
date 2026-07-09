@@ -30,7 +30,23 @@ const second = currentCard;
 grade(false);
 const key2 = second.w.uuid + "|" + second.dir;
 assert.strictEqual(reviews[key2].level, 0);
+assert.strictEqual(reviews[key2].lapses, 1, "перший провал -> lapses 1");
 assert.strictEqual(queue[queue.length - 1], second, "забута картка має бути в кінці черги");
+
+// lapses росте з кожним провалом і НЕ скидається при успіху (на відміну від level)
+reviews[key2] = { ...reviews[key2], lapses: LEECH_THRESHOLD - 1 };
+queue = [{ w: second.w, dir: second.dir }];
+currentCard = null;
+nextCard();
+grade(false);
+assert.strictEqual(reviews[key2].lapses, LEECH_THRESHOLD, "поріг leech досягнуто");
+assert.ok(isLeech(second.w), "слово має позначитись як leech після " + LEECH_THRESHOLD + " провалів");
+queue = [{ w: second.w, dir: second.dir }];
+currentCard = null;
+nextCard();
+grade(true);
+assert.strictEqual(reviews[key2].lapses, LEECH_THRESHOLD, "успішна відповідь не скидає lapses");
+assert.ok(isLeech(second.w), "leech-позначка лишається навіть після успішного повторення");
 
 // прострочена картка потрапляє в due, майбутня — ні
 reviews = {

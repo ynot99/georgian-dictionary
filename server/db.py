@@ -57,9 +57,14 @@ def init_db():
                 level INTEGER NOT NULL DEFAULT 0,
                 due_at TEXT NOT NULL,
                 reviewed_at TEXT NOT NULL,
+                lapses INTEGER NOT NULL DEFAULT 0,
                 PRIMARY KEY (word_uuid, direction)
             )
         """)
+        # міграція старої бази без лічильника провалів (leech-позначка)
+        review_cols = [row[1] for row in db.execute("PRAGMA table_info(reviews)")]
+        if "lapses" not in review_cols:
+            db.execute("ALTER TABLE reviews ADD COLUMN lapses INTEGER NOT NULL DEFAULT 0")
         # історія чату з репетитором (одна розмова, один користувач)
         db.execute("""
             CREATE TABLE IF NOT EXISTS chat_messages (
@@ -113,4 +118,5 @@ def review_dict(row):
         "level": row["level"],
         "due_at": row["due_at"],
         "reviewed_at": row["reviewed_at"],
+        "lapses": row["lapses"],
     }
