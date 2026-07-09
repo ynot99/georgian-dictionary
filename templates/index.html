@@ -129,6 +129,8 @@
     position: fixed; inset: 0; z-index: 10; background: var(--bg);
     display: flex; flex-direction: column;
     max-width: 560px; margin: 0 auto; padding: 16px 12px;
+    height: 100vh; height: 100dvh;   /* dvh сам стискається під клавіатуру, без JS */
+    touch-action: none;   /* немає власного скролу — блокуємо будь-яке панорамування тут */
   }
   .rv-top {
     display: flex; justify-content: space-between; align-items: center;
@@ -165,6 +167,7 @@
     position: fixed; inset: 0; z-index: 11; background: var(--bg);
     display: flex; flex-direction: column;
     max-width: 560px; margin: 0 auto; padding: 12px;
+    height: 100vh; height: 100dvh;
   }
   .ch-top {
     display: flex; justify-content: space-between; align-items: center;
@@ -178,6 +181,7 @@
   #chat-log {
     flex: 1; overflow-y: auto; display: flex; flex-direction: column;
     gap: 8px; padding: 4px 0; min-height: 0;
+    overscroll-behavior: contain;   /* скрол на межі списку не "просочується" у фон */
   }
   .msg {
     max-width: 85%; padding: 10px 12px; border-radius: 12px;
@@ -210,10 +214,12 @@
     position: fixed; inset: 0; z-index: 12; background: var(--bg);
     display: flex; flex-direction: column;
     max-width: 560px; margin: 0 auto; padding: 12px;
+    height: 100vh; height: 100dvh;
   }
   #notes-log {
     flex: 1; overflow-y: auto; display: flex; flex-direction: column;
     gap: 10px; padding: 4px 0 16px; min-height: 0;
+    overscroll-behavior: contain;
   }
   .note-card {
     background: var(--card); border: 1px solid var(--border);
@@ -332,6 +338,79 @@
 
 <script>
 "use strict";
+
+// ---------- повноекранні вікна: блокування скролу фону на мобільних ----------
+
+// На iOS/Android фокус на полі всередині position:fixed вікна змушує браузер
+// прокручувати ДОКУМЕНТ (а не саме вікно), щоб показати поле над клавіатурою —
+// це і зсуває вікно, і робить так, що скрол потрапляє в список слів за ним.
+// html { touch-action: pan-x pan-y } (нижче, проти pinch-zoom) сам собою
+// дозволяє панорамування — тому саму лише position:fixed на body недостатньо,
+// додатково глушимо overflow на html і body, поки відкрите хоч одне вікно.
+let bodyScrollY = 0;
+let openOverlayCount = 0;
+
+function lockBodyScroll() {
+  if (openOverlayCount++ > 0) return;
+  bodyScrollY = window.scrollY;
+  document.documentElement.style.overflow = "hidden";
+  document.body.style.overflow = "hidden";
+  document.body.style.position = "fixed";
+  document.body.style.top = `-${bodyScrollY}px`;
+  document.body.style.left = "0";
+  document.body.style.right = "0";
+}
+
+function unlockBodyScroll() {
+  if (openOverlayCount === 0 || --openOverlayCount > 0) return;
+  document.documentElement.style.overflow = "";
+  document.body.style.overflow = "";
+  document.body.style.position = "";
+  document.body.style.top = "";
+  document.body.style.left = "";
+  document.body.style.right = "";
+  window.scrollTo(0, bodyScrollY);
+}
+
+// CSS height:100dvh стискає вікно під клавіатуру, але не рятує від окремого
+// iOS-механізму "прокрутити фокусоване поле над клавіатурою" — він зсуває
+// видиму область так, що position:fixed (прив'язаний до layout viewport)
+// вилазить за межі того, що реально видно. Підганяємо top/height під
+// VisualViewport (реальну видиму область), поки відкрите вікно з полем вводу.
+const keyboardAwareOverlays = [];
+
+function registerKeyboardAwareOverlay(el) {
+  keyboardAwareOverlays.push(el);
+}
+
+function syncOverlaysToViewport() {
+  if (!window.visualViewport) return;
+  const vv = window.visualViewport;
+  for (const el of keyboardAwareOverlays) {
+    if (el.hidden) continue;
+    el.style.height = vv.height + "px";
+    el.style.top = vv.offsetTop + "px";
+  }
+}
+
+if (window.visualViewport) {
+  window.visualViewport.addEventListener("resize", syncOverlaysToViewport);
+  window.visualViewport.addEventListener("scroll", syncOverlaysToViewport);
+}
+
+// Автофокус одразу після появи вікна (в тому ж такті JS, до першого
+// перемальовування) змушує iOS відкривати клавіатуру ще за геометрією
+// СТАРОГО екрана (вікно технічно ще не намальоване) — звідси "видно фон
+// крізь клавіатуру" лише при автофокусі, а не при ручному тапі пізніше.
+// requestAnimationFrame це "лікує", але ламає інше: iOS Safari відкриває
+// клавіатуру, лише коли .focus() викликаний СИНХРОННО в тому ж такті, що й
+// дотик користувача ("довірений" жест) — відкладений виклик фокус ставить,
+// але клавіатуру вже не показує. Замість відкладення читаємо layout-залежну
+// властивість (forceReflow) — це змушує браузер порахувати layout негайно,
+// і водночас лишається в тому самому синхронному такті кліку/тапу.
+function forceReflow(el) {
+  void el.offsetHeight;
+}
 
 // ---------- локальне сховище ----------
 
@@ -584,6 +663,7 @@ let lastVerdict = null;
 const hasPointer = window.matchMedia && window.matchMedia("(hover: hover)").matches;
 
 const overlay = document.getElementById("review-overlay");
+registerKeyboardAwareOverlay(overlay);
 const rvProgress = document.getElementById("rv-progress");
 const rvDir = document.getElementById("rv-dir");
 const rvFront = document.getElementById("rv-front");
@@ -610,6 +690,9 @@ function startReview() {
   queue = [...shuffle(due), ...shuffle(fresh).slice(0, NEW_PER_SESSION)];
   doneCount = 0;
   overlay.hidden = false;
+  lockBodyScroll();
+  syncOverlaysToViewport();
+  forceReflow(overlay);   // щоб автофокус нижче бачив уже готову геометрію вікна
   nextCard();
 }
 
@@ -719,6 +802,7 @@ function grade(correct) {
 
 function closeReview() {
   overlay.hidden = true;
+  unlockBodyScroll();
   render();
   sync();   // відправити свіжі оцінки на сервер
 }
@@ -1070,10 +1154,21 @@ function render() {
 // ---------- чат з репетитором ----------
 
 const chatOverlay = document.getElementById("chat-overlay");
+registerKeyboardAwareOverlay(chatOverlay);
 const chatLog = document.getElementById("chat-log");
 const chatInput = document.getElementById("chat-input");
 let chatLoaded = false;
 let chatBusy = false;
+
+// Клавіатура доанімовується вже ПІСЛЯ того, як повідомлення прокрутились до
+// низу (мережевий запит зазвичай встигає раніше) — тодішній scrollTop вже не
+// збігається зі справжнім кінцем, коли chatOverlay остаточно стискається під
+// клавіатуру. Довідскролюємо, щойно visualViewport "осідає".
+if (window.visualViewport) {
+  window.visualViewport.addEventListener("resize", () => {
+    if (!chatOverlay.hidden) chatLog.scrollTop = chatLog.scrollHeight;
+  });
+}
 
 // репетитор посилається на нотатку форматом [[note:ID|Назва]] — розбираємо
 // на текст + клікабельні "жетони" без innerHTML (безпечно від довільного HTML)
@@ -1122,6 +1217,9 @@ function chatNote(text) {
 
 async function openChat() {
   chatOverlay.hidden = false;
+  lockBodyScroll();
+  syncOverlaysToViewport();
+  forceReflow(chatOverlay);
   chatInput.focus();
   if (chatLoaded) return;
   chatLog.replaceChildren();
@@ -1206,11 +1304,14 @@ async function clearChat() {
 // ---------- нотатки з граматики ----------
 
 const notesOverlay = document.getElementById("notes-overlay");
+registerKeyboardAwareOverlay(notesOverlay);
 const notesLog = document.getElementById("notes-log");
 let notesCache = [];
 
 async function openNotes(highlightId) {
   notesOverlay.hidden = false;
+  lockBodyScroll();
+  syncOverlaysToViewport();
   try {
     const res = await fetchWithTimeout("/api/notes");
     if (!res.ok) throw new Error();
@@ -1308,21 +1409,31 @@ rvStrict.addEventListener("click", () => {
   updateModeBtn();
 });
 
+function closeChat() {
+  chatOverlay.hidden = true;
+  unlockBodyScroll();
+}
+
+function closeNotes() {
+  notesOverlay.hidden = true;
+  unlockBodyScroll();
+}
+
 document.getElementById("chat-btn").addEventListener("click", openChat);
-document.getElementById("ch-close").addEventListener("click", () => { chatOverlay.hidden = true; });
+document.getElementById("ch-close").addEventListener("click", closeChat);
 document.getElementById("ch-clear").addEventListener("click", clearChat);
 document.getElementById("chat-form").addEventListener("submit", sendChat);
 document.getElementById("notes-btn").addEventListener("click", () => openNotes());
-document.getElementById("notes-close").addEventListener("click", () => { notesOverlay.hidden = true; });
+document.getElementById("notes-close").addEventListener("click", closeNotes);
 
 // клавіатура в сесії повторення: Enter/1/2/Escape
 window.addEventListener("keydown", (e) => {
   if (!notesOverlay.hidden) {          // нотатки можуть відкритись поверх чату
-    if (e.key === "Escape") notesOverlay.hidden = true;
+    if (e.key === "Escape") closeNotes();
     return;
   }
   if (!chatOverlay.hidden) {          // чат зверху — клавіші повторення не діють
-    if (e.key === "Escape") chatOverlay.hidden = true;
+    if (e.key === "Escape") closeChat();
     return;
   }
   if (overlay.hidden) return;

@@ -25,11 +25,16 @@ function runInAppContext(testCode) {
       (this.listeners[type] = this.listeners[type] || []).push(fn);
     },
     matchMedia: () => ({ matches: true }),
+    scrollY: 0,
+    scrollTo() {},
   };
+  // синхронно — тестам не потрібно чекати справжній кадр анімації
+  global.requestAnimationFrame = (cb) => { cb(); return 0; };
   global.document = {
     getElementById: () => fakeEl(),
     createElement: () => fakeEl(),
-    body: { append() {} },
+    body: { append() {}, style: {} },
+    documentElement: { style: {} },
   };
   // Node 24+ уже має вбудований global.navigator лише з getter'ом — пряме
   // присвоєння впало б у строгому режимі, тож перевизначаємо дескриптор.
