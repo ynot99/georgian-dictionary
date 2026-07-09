@@ -250,6 +250,7 @@
       <span id="rv-progress"></span>
       <span class="rv-top-btns">
         <button type="button" id="rv-mode"></button>
+        <button type="button" id="rv-strict"></button>
         <button type="button" id="rv-close" title="Закрити">✕</button>
       </span>
     </div>
@@ -523,7 +524,9 @@ function checkAnswer(typed, correct) {
   if (!t) return false;
   for (const v of answerVariants(correct)) {
     if (t === v) return true;
-    if (v.length >= 5 && within1Edit(t, v)) return true;   // коротким словам одруківку не прощаємо
+    // у строгому режимі (reviewStrict) одруківки не прощаються взагалі —
+    // потрібно, щоб точно вивчити грузинське написання, буква в букву
+    if (!reviewStrict && v.length >= 5 && within1Edit(t, v)) return true;
   }
   return false;
 }
@@ -533,6 +536,8 @@ let currentCard = null;
 let doneCount = 0;
 // "type" — друкуєш відповідь, "flip" — класичний показ; вибір запам'ятовується
 let reviewMode = localStorage.getItem("reviewMode") || "type";
+// строгий режим: вимикає прощення одруківок у checkAnswer
+let reviewStrict = localStorage.getItem("reviewStrict") === "1";
 // вердикт останньої перевірки (true/false), null якщо відповідь не друкувалась
 let lastVerdict = null;
 // підказки клавіш показуємо лише там, де ймовірно є клавіатура
@@ -549,6 +554,7 @@ const rvReveal = document.getElementById("rv-reveal");
 const rvWrong = document.getElementById("rv-wrong");
 const rvRight = document.getElementById("rv-right");
 const rvMode = document.getElementById("rv-mode");
+const rvStrict = document.getElementById("rv-strict");
 const rvType = document.getElementById("rv-type");
 const rvInput = document.getElementById("rv-input");
 const rvVerdict = document.getElementById("rv-verdict");
@@ -572,6 +578,11 @@ function updateModeBtn() {
   rvMode.title = reviewMode === "type"
     ? "Режим: друкування відповіді (тап — перемкнути на показ)"
     : "Режим: показ відповіді (тап — перемкнути на друкування)";
+  rvStrict.hidden = reviewMode !== "type";   // строгість стосується лише друкування
+  rvStrict.textContent = reviewStrict ? "🔒" : "🔓";
+  rvStrict.title = reviewStrict
+    ? "Строгий режим: одруківки НЕ прощаються (тап — вимкнути)"
+    : "Звичайний режим: одна одруківка прощається (тап — увімкнути строгий)";
 }
 
 function presentCard() {
@@ -1119,6 +1130,12 @@ rvMode.addEventListener("click", () => {
   reviewMode = reviewMode === "type" ? "flip" : "type";
   localStorage.setItem("reviewMode", reviewMode);
   presentCard();   // перепоказати поточну картку в новому режимі
+});
+
+rvStrict.addEventListener("click", () => {
+  reviewStrict = !reviewStrict;
+  localStorage.setItem("reviewStrict", reviewStrict ? "1" : "0");
+  updateModeBtn();
 });
 
 document.getElementById("chat-btn").addEventListener("click", openChat);
