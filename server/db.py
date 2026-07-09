@@ -1,7 +1,7 @@
 """SQLite: з'єднання, схема, спільні хелпери. Використовується всіма модулями."""
 import sqlite3
 import uuid as uuidlib
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from flask import g
@@ -83,10 +83,24 @@ def init_db():
                 created_at TEXT NOT NULL
             )
         """)
+        # прогрес повторення нотаток (SRS, ті самі інтервали, що й слова);
+        # лише сервер — на відміну від words/reviews офлайн-копії тут немає
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS note_reviews (
+                note_id INTEGER PRIMARY KEY,
+                level INTEGER NOT NULL DEFAULT 0,
+                due_at TEXT NOT NULL,
+                reviewed_at TEXT NOT NULL
+            )
+        """)
 
 
 def utcnow():
     return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def due_date_str(days):
+    return (datetime.now(timezone.utc) + timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
 
 
 def normalize_tags(raw):

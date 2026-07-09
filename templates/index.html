@@ -56,6 +56,7 @@
     <div class="rv-card">
       <p class="rv-dir" id="rv-dir"></p>
       <p class="rv-front" id="rv-front"></p>
+      <p class="rv-cloze" id="rv-cloze" hidden></p>
       <p class="rv-verdict" id="rv-verdict" hidden></p>
       <p class="rv-back" id="rv-back" hidden></p>
       <p class="rv-ex" id="rv-ex" hidden></p>
@@ -93,10 +94,24 @@
     <div class="ch-top">
       <span class="ch-title">📖 Нотатки з граматики</span>
       <span class="rv-top-btns">
+        <button type="button" id="notes-review-btn" title="Повторити нотатки">🎓</button>
         <button type="button" id="notes-close" title="Закрити">✕</button>
       </span>
     </div>
     <div id="notes-log"></div>
+    <div id="notes-review" hidden>
+      <p class="rv-dir" id="nr-progress"></p>
+      <div class="rv-card">
+        <p class="rv-front" id="nr-title"></p>
+        <p class="rv-back" id="nr-content" hidden></p>
+        <p class="rv-done" id="nr-done" hidden></p>
+      </div>
+      <div class="rv-actions">
+        <button type="button" id="nr-reveal">Показати</button>
+        <button type="button" id="nr-wrong" hidden>❌ Не знав</button>
+        <button type="button" id="nr-right" hidden>✅ Знав</button>
+      </div>
+    </div>
   </div>
 
 <script src="/static/js/overlay.js"></script>

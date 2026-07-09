@@ -11,6 +11,14 @@ words = [
 reviews = {};
 activeTag = null;
 
+// cloze-підказка: точний збіг слова в прикладі -> пропуск замість нього
+assert.strictEqual(clozeHint(words[1]), "____ და წყალი", "приклад містить точне слово -> пропуск");
+assert.strictEqual(clozeHint(words[0]), null, "порожній приклад -> немає підказки");
+assert.strictEqual(
+  clozeHint({ georgian: "მაგიდა", example: "ეს არის სკამი." }),
+  null, "слово не входить у приклад дослівно (напр. інша відмінкова форма) -> немає підказки"
+);
+
 // без прогресу всі картки нові: 2 слова x 2 напрямки
 let c = collectDue();
 assert.strictEqual(c.due.length, 0);

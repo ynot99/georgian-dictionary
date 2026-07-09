@@ -69,6 +69,10 @@ document.getElementById("ch-clear").addEventListener("click", clearChat);
 document.getElementById("chat-form").addEventListener("submit", sendChat);
 document.getElementById("notes-btn").addEventListener("click", () => openNotes());
 document.getElementById("notes-close").addEventListener("click", closeNotes);
+notesReviewBtn.addEventListener("click", toggleNoteReview);
+nrReveal.addEventListener("click", revealNote);
+nrWrong.addEventListener("click", () => gradeNote(false));
+nrRight.addEventListener("click", () => gradeNote(true));
 
 // клавіатура в сесії повторення: Enter/1/2/Escape
 window.addEventListener("keydown", (e) => {

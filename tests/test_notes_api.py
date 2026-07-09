@@ -74,10 +74,38 @@ note = next(n for n in data["notes"] if n["id"] == new_id)
 assert note["title"] == "test-note-http" and note["content"] == "Текст для http-тесту"
 print("8. GET /api/notes повертає створену нотатку")
 
+# --- e2e: повторення нотаток (/api/notes/<id>/review) ---
+
+assert note["level"] == 0 and note["due_at"] is None, note
+print("9. нова нотатка починається з level 0, без due_at")
+
+status, data = req(f"/api/notes/{new_id}/review", "POST", {"correct": True})
+assert status == 200 and data["level"] == 1 and data["due_at"], data
+print("10. правильна відповідь піднімає рівень (1) і встановлює due_at у майбутнє")
+
+_, data = req("/api/notes")
+note = next(n for n in data["notes"] if n["id"] == new_id)
+assert note["level"] == 1 and note["due_at"], note
+print("11. GET /api/notes повертає оновлений прогрес нотатки")
+
+status, data = req(f"/api/notes/{new_id}/review", "POST", {"correct": False})
+assert status == 200 and data["level"] == 0, data
+print("12. неправильна відповідь скидає рівень на 0")
+
+status, _ = req("/api/notes/999999/review", "POST", {"correct": True})
+assert status == 404
+print("13. повторення неіснуючої нотатки -> 404")
+
 status, _ = req(f"/api/notes/{new_id}", "DELETE")
 assert status == 200
+conn = sqlite3.connect(DB_PATH)
+leftover = conn.execute(
+    "SELECT 1 FROM note_reviews WHERE note_id = ?", (new_id,)
+).fetchone()
+conn.close()
+assert leftover is None, "видалення нотатки має прибрати і її прогрес повторення"
 _, data = req("/api/notes")
 assert len(data["notes"]) == base_count, len(data["notes"])
-print(f"9. DELETE /api/notes/<id> прибирає нотатку; знову {base_count}")
+print(f"14. DELETE /api/notes/<id> прибирає нотатку і її прогрес; знову {base_count}")
 
 print("\nВСЕ OK (жодного звернення до Claude API)")

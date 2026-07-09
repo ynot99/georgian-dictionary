@@ -140,6 +140,7 @@ form.add button {
 .rv-front { font-size: 1.9rem; font-weight: 700; overflow-wrap: anywhere; }
 .rv-back { font-size: 1.4rem; color: var(--accent); overflow-wrap: anywhere; }
 .rv-ex { color: var(--muted); font-style: italic; font-size: .95rem; }
+.rv-cloze { color: var(--muted); font-style: italic; font-size: .9rem; }
 .rv-done { font-size: 1.2rem; }
 .rv-top-btns { display: flex; gap: 4px; }
 .rv-verdict { font-size: 1rem; font-weight: 600; }
@@ -235,3 +236,7 @@ form.add button {
 #rv-reveal { background: var(--accent); color: #fff; }
 #rv-wrong { background: var(--card); border: 1px solid var(--border); color: var(--text); }
 #rv-right { background: var(--accent); color: #fff; }
+#notes-review { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+#nr-reveal { background: var(--accent); color: #fff; }
+#nr-wrong { background: var(--card); border: 1px solid var(--border); color: var(--text); }
+#nr-right { background: var(--accent); color: #fff; }
