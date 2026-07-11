@@ -66,6 +66,22 @@ _, c = req("/api/tags/rename", "POST", {"old": "", "new": "щось"})
 assert c == {"updated": 0}, c
 print("6. порожній old -> no-op")
 
+# перейменування в зарезервоване слово ("усі"/"проблемні") -> no-op, бо
+# normalize_tags() відфільтровує його в порожній new_tag
+_, c = req("/api/tags/rename", "POST", {"old": "дієслова", "new": "Усі"})
+assert c == {"updated": 0}, c
+print("7. перейменування в зарезервоване слово -> no-op")
+
+# зарезервоване слово ніколи не потрапляє в базу і через /api/sync
+req("/api/sync", "POST", {"words": [
+    {"uuid": "test-tagr-5", "georgian": "test-tagr-e", "translation": "д",
+     "example": "", "tags": "проблемні, дієслова", "created_at": "2026-07-10 10:00:00"}],
+    "reviews": []})
+_, data = req("/api/sync", "POST", {"words": [], "reviews": []})
+w5 = by_uuid(data, "test-tagr-5")
+assert w5["tags"] == "дієслова", f"зарезервований тег не має зберігатись: {w5['tags']}"
+print("8. зарезервований тег відфільтровано ще при синхронізації")
+
 # прибирання
 _, data = req("/api/sync", "POST", {"words": [], "reviews": []})
 for w in data["words"]:

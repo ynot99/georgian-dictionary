@@ -103,12 +103,18 @@ def due_date_str(days):
     return (datetime.now(timezone.utc) + timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
 
 
+# зарезервовані для вбудованих чипів у панелі тегів ("усі", "🩹 проблемні") —
+# звичайним тегом стати не можуть (дублює логіку RESERVED_TAGS у static/js/store.js)
+RESERVED_TAGS = {"усі", "проблемні"}
+
+
 def normalize_tags(raw):
-    """'їжа, Дієслова,їжа' → 'їжа, дієслова' — трім, нижній регістр, без дублів."""
+    """'їжа, Дієслова,їжа' → 'їжа, дієслова' — трім, нижній регістр, без дублів
+    і без зарезервованих слів."""
     seen = []
     for tag in (raw or "").split(","):
         tag = tag.strip().lower()
-        if tag and tag not in seen:
+        if tag and tag not in RESERVED_TAGS and tag not in seen:
             seen.append(tag)
     return ", ".join(seen)
 

@@ -9,6 +9,12 @@ assert.strictEqual(normalizeTags(" Їжа, напої,їжа "), "їжа, нап
 assert.strictEqual(normalizeTags(""), "");
 assert.strictEqual(normalizeTags(null), "");
 
+// зарезервовані слова ("усі", "проблемні") ніколи не стають реальним тегом —
+// інакше в панелі тегів було б два однакові на вигляд чипи
+assert.strictEqual(normalizeTags("Усі"), "", "усі -> відфільтровано");
+assert.strictEqual(normalizeTags("ПРОБЛЕМНІ"), "", "проблемні -> відфільтровано (без урахування регістру)");
+assert.strictEqual(normalizeTags("їжа, усі, напої"), "їжа, напої", "серед інших тегів усі -> прибирається, решта лишається");
+
 // tagList
 assert.deepStrictEqual(tagList({ tags: "їжа, напої" }), ["їжа", "напої"]);
 assert.strictEqual(tagList({}).length, 0);

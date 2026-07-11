@@ -39,12 +39,17 @@ function logReview() {
   localStorage.setItem("reviewLog", JSON.stringify(reviewLog));
 }
 
-// "їжа, Дієслова,їжа" → "їжа, дієслова" (трім, нижній регістр, без дублів)
+// зарезервовані для вбудованих чипів у панелі тегів ("усі", "🩹 проблемні") —
+// звичайним тегом стати не можуть, інакше в панелі буде два однакові на вигляд чипи
+const RESERVED_TAGS = ["усі", "проблемні"];
+
+// "їжа, Дієслова,їжа" → "їжа, дієслова" (трім, нижній регістр, без дублів,
+// без зарезервованих слів)
 function normalizeTags(raw) {
   const seen = [];
   for (let t of (raw || "").split(",")) {
     t = t.trim().toLowerCase();
-    if (t && !seen.includes(t)) seen.push(t);
+    if (t && !RESERVED_TAGS.includes(t) && !seen.includes(t)) seen.push(t);
   }
   return seen.join(", ");
 }
