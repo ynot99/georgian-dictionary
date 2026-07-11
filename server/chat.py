@@ -86,7 +86,15 @@ ADD_WORD_TOOL = {
             },
             "tags": {
                 "type": "string",
-                "description": "Теги через кому, напр. 'їжа, дієслова' (необов'язково)",
+                "description": (
+                    "Теги через кому, напр. 'їжа, дієслова' (необов'язково). Для "
+                    "окремих форм одного дієслова (грузинська дуже нерегулярна: "
+                    "дієслова руху міняють корінь між часовими серіями, форми "
+                    "різняться за особою/числом об'єкта) — додай тег у форматі "
+                    "'дієслово:<словникова форма>', однаковий для ВСІХ форм цього "
+                    "дієслова (напр. усі форми 'йти/прийти' — тег 'дієслово:წასვლა'), "
+                    "щоб вони згрупувались в один чип у панелі тегів."
+                ),
             },
         },
         "required": ["georgian", "translation"],
@@ -114,6 +122,57 @@ def execute_add_word(conn, tool_input):
     )
     conn.commit()
     return {"ok": True, "uuid": word_uuid, "georgian": georgian, "translation": translation}
+
+
+RETAG_WORD_TOOL = {
+    "name": "retag_word",
+    "description": (
+        "Додає теги до вже ІСНУЮЧОГО слова в словнику учня (наявні теги "
+        "зберігаються, нові додаються поруч — нічого не перезаписується). Слово "
+        "шукається за точним грузинським написанням. Використовуй, щоб "
+        "згрупувати вже додані форми дієслова спільним тегом "
+        "'дієслово:<словникова форма>' (див. опис поля tags в add_word), коли "
+        "учень хоче впорядкувати наявні слова, а не додати нові. Якщо в "
+        "словнику кілька слів з однаковим написанням — жодне не змінюється, "
+        "повертається помилка з проханням уточнити (напр. за перекладом)."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "georgian": {
+                "type": "string",
+                "description": "Точне грузинське написання наявного слова (як у словнику нижче)",
+            },
+            "tags": {
+                "type": "string",
+                "description": "Теги, які додати, через кому (наявні теги слова не губляться)",
+            },
+        },
+        "required": ["georgian", "tags"],
+    },
+}
+
+
+def execute_retag_word(conn, tool_input):
+    georgian = (tool_input.get("georgian") or "").strip()
+    new_tags = (tool_input.get("tags") or "").strip()
+    if not georgian or not new_tags:
+        return {"ok": False, "error": "потрібні і georgian, і tags"}
+    matches = conn.execute(
+        "SELECT uuid, tags FROM words WHERE georgian = ?", (georgian,)
+    ).fetchall()
+    if not matches:
+        return {"ok": False, "error": f"слово «{georgian}» не знайдено в словнику"}
+    if len(matches) > 1:
+        return {
+            "ok": False,
+            "error": f"у словнику кілька слів з написанням «{georgian}» — уточни, яке саме",
+        }
+    row = matches[0]
+    merged = normalize_tags(f"{row['tags']}, {new_tags}" if row["tags"] else new_tags)
+    conn.execute("UPDATE words SET tags = ? WHERE uuid = ?", (merged, row["uuid"]))
+    conn.commit()
+    return {"ok": True, "uuid": row["uuid"], "tags": merged}
 
 
 SAVE_GRAMMAR_NOTE_TOOL = {
@@ -185,9 +244,10 @@ def execute_get_grammar_note(conn, tool_input):
     return {"ok": True, "id": note_id, "title": row["title"], "content": row["content"]}
 
 
-CHAT_TOOLS = [ADD_WORD_TOOL, SAVE_GRAMMAR_NOTE_TOOL, GET_GRAMMAR_NOTE_TOOL]
+CHAT_TOOLS = [ADD_WORD_TOOL, RETAG_WORD_TOOL, SAVE_GRAMMAR_NOTE_TOOL, GET_GRAMMAR_NOTE_TOOL]
 CHAT_TOOL_EXECUTORS = {
     "add_word": execute_add_word,
+    "retag_word": execute_retag_word,
     "save_grammar_note": execute_save_grammar_note,
     "get_grammar_note": execute_get_grammar_note,
 }
@@ -283,6 +343,12 @@ def build_tutor_system(db):
 з розмови — використай інструмент add_word (переклад і, якщо доречно, приклад та теги), \
 а потім коротко підтверди, що додав. Приклад бажано з дослівною формою слова (див. опис \
 поля example) — це вмикає вправи "заповни пропуск" на повтореннях.
+- Коли пояснюєш форми нерегулярного дієслова (грузинські дієслова руху й багато інших \
+міняють корінь між часовими серіями чи формами) і учень хоче їх запам'ятати — запропонуй \
+додати кілька ключових форм через add_word окремими словами з однаковим тегом \
+"дієслово:<словникова форма>" (див. опис поля tags), а не лише переказати форми в тексті \
+відповіді — інакше вони не потраплять у SRS-повторення. Якщо учень хоче так само \
+згрупувати форми, які вже є в словнику (не нові) — використай retag_word для кожної з них.
 - Коли пояснюєш граматичне правило, яке варто зберегти для повторного звернення \
 (особливо якщо учень просить "збережи це правило", або тема повторюється) — використай \
 save_grammar_note. Спочатку перевір список наявних нотаток нижче, щоб не дублювати тему; \
