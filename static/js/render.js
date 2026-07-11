@@ -56,6 +56,33 @@ async function renameTagPrompt(oldTag) {
   }
 }
 
+async function deleteTagPrompt(tag) {
+  if (!confirm(`Прибрати тег «${tag}» з усіх слів? Сам тег зникне з панелі, слова лишаться.`)) return;
+  try {
+    const res = await fetchWithTimeout("/api/tags/delete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tag }),
+    });
+    if (!res.ok) throw new Error();
+    const { deleted } = await res.json();
+    // локальні ще не синхронізовані слова сервер не бачив — виправляємо і їх
+    for (const w of words) {
+      if (!w.synced && tagList(w).includes(tag)) {
+        w.tags = normalizeTags(tagList(w).filter((t) => t !== tag).join(","));
+      }
+    }
+    activeTag = null;
+    online = true;
+    await sync();
+    if (deleted) alert(`Тег прибрано з ${deleted} слів.`);
+  } catch {
+    online = false;
+    render();
+    alert("Видалення тега потребує з'єднання з сервером.");
+  }
+}
+
 function renderTagbar() {
   const tagbar = document.getElementById("tagbar");
   const counts = new Map();       // звичайні теги
@@ -134,6 +161,11 @@ function renderTagbar() {
     renameBtn.title = `Перейменувати тег «${activeTag}»`;
     renameBtn.onclick = () => renameTagPrompt(activeTag);
     tagbar.append(renameBtn);
+
+    const deleteBtn = el("button", "chip", "🗑");
+    deleteBtn.title = `Прибрати тег «${activeTag}» з усіх слів`;
+    deleteBtn.onclick = () => deleteTagPrompt(activeTag);
+    tagbar.append(deleteBtn);
   }
 
   // прокрутка — лише якщо тег справді щойно змінився (не на кожен render())

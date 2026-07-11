@@ -190,6 +190,37 @@ def api_tags_rename():
     return {"updated": updated}
 
 
+@words_bp.route("/api/tags/delete", methods=["POST"])
+def api_tags_delete():
+    """Прибирає тег з усіх слів, де він зустрічається — без заміни на інший
+    (сам тег зникає з панелі, слова лишаються). Порівняння точне, по токену —
+    той самий підхід, що й у /api/tags/rename.
+    """
+    payload = request.get_json(silent=True) or {}
+    tag = normalize_tags(payload.get("tag"))
+    if not tag:
+        return {"deleted": 0}
+    db = get_db()
+    rows = db.execute(
+        "SELECT uuid, tags FROM words WHERE tags = ? OR tags LIKE ? OR tags LIKE ? "
+        "OR tags LIKE ?",
+        (tag, f"{tag}, %", f"%, {tag}", f"%, {tag}, %"),
+    ).fetchall()
+    deleted = 0
+    for row in rows:
+        tokens = [t.strip() for t in row["tags"].split(",") if t.strip()]
+        if tag not in tokens:
+            continue
+        remaining = [t for t in tokens if t != tag]
+        db.execute(
+            "UPDATE words SET tags = ? WHERE uuid = ?",
+            (normalize_tags(", ".join(remaining)), row["uuid"]),
+        )
+        deleted += 1
+    db.commit()
+    return {"deleted": deleted}
+
+
 @words_bp.route("/edit/<int:word_id>", methods=["GET", "POST"])
 def edit(word_id):
     db = get_db()

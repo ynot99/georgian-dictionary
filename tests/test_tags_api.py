@@ -82,13 +82,43 @@ w5 = by_uuid(data, "test-tagr-5")
 assert w5["tags"] == "дієслова", f"зарезервований тег не має зберігатись: {w5['tags']}"
 print("8. зарезервований тег відфільтровано ще при синхронізації")
 
+# --- e2e: /api/tags/delete (прибрати тег без заміни) ---
+
+# на цей момент test-tagr-2/4/5 усі мають тег "дієслова" (з попередніх кроків)
+req("/api/sync", "POST", {"words": [
+    {"uuid": "test-tagd-1", "georgian": "test-tagd-a", "translation": "а",
+     "example": "", "tags": "тест-дел, дієслова", "created_at": "2026-07-10 10:00:00"},
+    {"uuid": "test-tagd-2", "georgian": "test-tagd-b", "translation": "б",
+     "example": "", "tags": "тест-дел2", "created_at": "2026-07-10 10:00:00"},
+], "reviews": []})
+_, c = req("/api/tags/delete", "POST", {"tag": "тест-дел"})
+assert c == {"deleted": 1}, c
+print(f"9. видалення тега: {c}")
+
+_, data = req("/api/sync", "POST", {"words": [], "reviews": []})
+wd1 = by_uuid(data, "test-tagd-1")
+wd2 = by_uuid(data, "test-tagd-2")
+assert wd1["tags"] == "дієслова", f"тег прибрано, інші лишились: {wd1['tags']}"
+assert wd2["tags"] == "тест-дел2", "тег-підрядок (тест-дел2) не має зачіпатись"
+print("10. тег прибрано точно по токену, інші теги й підрядки не зачеплені")
+
+# порожній тег -> no-op
+_, c = req("/api/tags/delete", "POST", {"tag": ""})
+assert c == {"deleted": 0}, c
+print("11. порожній тег -> no-op")
+
+# повторне видалення того самого тега (уже відсутній) -> 0
+_, c = req("/api/tags/delete", "POST", {"tag": "тест-дел"})
+assert c == {"deleted": 0}, c
+print("12. повторне видалення відсутнього тега -> 0")
+
 # прибирання
 _, data = req("/api/sync", "POST", {"words": [], "reviews": []})
 for w in data["words"]:
-    if w["uuid"].startswith("test-tagr-"):
+    if w["uuid"].startswith("test-tagr-") or w["uuid"].startswith("test-tagd-"):
         req(f"/api/words/{w['uuid']}", "DELETE")
 _, data = req("/api/sync", "POST", {"words": [], "reviews": []})
 assert len(data["words"]) == base_count, len(data["words"])
-print(f"7. прибирання: знову {base_count} слів")
+print(f"13. прибирання: знову {base_count} слів")
 
 print("\nВСЕ OK")
