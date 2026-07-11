@@ -12,6 +12,12 @@ const searchEl = document.getElementById("search");
 // розкритим у межах сесії (переживає повторні render() від пошуку/синку/тощо)
 const revealedWords = new Set();
 
+// прокрутка панелі тегів до активного чипа (чи назад на початок при знятті
+// фільтра) має спрацьовувати лише як РЕАКЦІЯ на зміну activeTag, а не на
+// кожен render() узагалі (інакше звичайний пошук/синк відкидав би ручний
+// скрол користувача) — тому порівнюємо з попереднім значенням
+let lastActiveTagForScroll;
+
 function el(tag, cls, text) {
   const node = document.createElement(tag);
   if (cls) node.className = cls;
@@ -76,7 +82,12 @@ function renderTagbar() {
 
   tagbar.hidden = counts.size === 0 && !leechCount && !verbWordCount;
   tagbar.replaceChildren();
-  if (!counts.size && !leechCount && !verbWordCount) return;
+  if (!counts.size && !leechCount && !verbWordCount) {
+    lastActiveTagForScroll = activeTag;
+    return;
+  }
+
+  let activeChipEl = null;   // чип, що відповідає поточному activeTag — для прокрутки
 
   const allChip = el("button", "chip" + (activeTag === null ? " active" : ""),
     `усі (${words.length})`);
@@ -88,6 +99,7 @@ function renderTagbar() {
       `🩹 проблемні (${leechCount})`);
     leechChip.onclick = () => { activeTag = activeTag === LEECH_TAG ? null : LEECH_TAG; render(); };
     tagbar.append(leechChip);
+    if (activeTag === LEECH_TAG) activeChipEl = leechChip;
   }
 
   if (verbWordCount) {
@@ -95,6 +107,7 @@ function renderTagbar() {
       `📖 Дієслова (${verbWordCount})`);
     verbChip.onclick = () => { activeTag = inVerbView ? null : VERB_TAG; render(); };
     tagbar.append(verbChip);
+    if (activeTag === VERB_TAG) activeChipEl = verbChip;
   }
 
   if (inVerbView) {
@@ -104,6 +117,7 @@ function renderTagbar() {
         `${tag.slice(VERB_TAG_PREFIX.length)} (${n})`);
       chip.onclick = () => { activeTag = activeTag === tag ? VERB_TAG : tag; render(); };
       tagbar.append(chip);
+      if (activeTag === tag) activeChipEl = chip;
     }
   } else {
     for (const [tag, n] of [...counts.entries()].sort((a, b) => b[1] - a[1])) {
@@ -111,6 +125,7 @@ function renderTagbar() {
         `${tag} (${n})`);
       chip.onclick = () => { activeTag = activeTag === tag ? null : tag; render(); };
       tagbar.append(chip);
+      if (activeTag === tag) activeChipEl = chip;
     }
   }
 
@@ -120,6 +135,13 @@ function renderTagbar() {
     renameBtn.onclick = () => renameTagPrompt(activeTag);
     tagbar.append(renameBtn);
   }
+
+  // прокрутка — лише якщо тег справді щойно змінився (не на кожен render())
+  if (activeTag !== lastActiveTagForScroll) {
+    if (activeTag === null) tagbar.scrollLeft = 0;
+    else if (activeChipEl) activeChipEl.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }
+  lastActiveTagForScroll = activeTag;
 }
 
 function render() {
@@ -161,7 +183,7 @@ function render() {
     if (wTags.length) {
       const tagsEl = el("div", "tags");
       for (const t of wTags) {
-        const tagEl = el("span", "tag tappable", t);
+        const tagEl = el("span", "tag tappable" + (t === activeTag ? " active" : ""), t);
         tagEl.onclick = (e) => {
           e.stopPropagation();   // інакше клік по тегу ще й перемкнув би переклад картки
           activeTag = activeTag === t ? null : t;

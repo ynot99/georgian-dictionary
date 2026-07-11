@@ -112,6 +112,7 @@ form.add button {
   border: 1px solid var(--border); color: var(--muted);
 }
 .word .tag.tappable { cursor: pointer; }
+.word .tag.active { background: var(--accent); border-color: var(--accent); color: #fff; }
 .btnrow { display: flex; gap: 8px; margin-bottom: 12px; }
 .btnrow button {
   flex: 1; padding: 12px; font-size: 1rem; font-weight: 600;
