@@ -54,7 +54,7 @@ except ImportError:
     _chat_client = None
 
 CHAT_MODEL = "claude-sonnet-5"
-CHAT_MAX_TOKENS = 2048
+CHAT_MAX_TOKENS = 4096
 CHAT_HISTORY_LIMIT = 30  # скільки останніх повідомлень відправляти моделі
 CHAT_TOOL_LOOP_LIMIT = 5  # запобіжник від зациклення викликів інструментів
 CHAT_VOCAB_LIMIT = 300  # межа слів у промпті, щоб контекст не роздувався
@@ -461,6 +461,21 @@ def _run_chat_generation(history, system_prompt, out_queue):
                     collected.append(chunk)
                     out_queue.put(chunk)
                 final = stream.get_final_message()
+
+            if final.stop_reason == "max_tokens":
+                # відповідь обірвано лімітом токенів (не помилка API) — без цього
+                # виглядає як звичайне завершення, хоча модель могла зупинитись
+                # на півслові чи навіть не встигнути викликати обіцяні інструменти
+                logger.error(
+                    "Відповідь обірвано по max_tokens (ліміт %d)", CHAT_MAX_TOKENS
+                )
+                fallback = (
+                    "\n\n⚠️ Відповідь обірвано — забракло токенів. Напиши "
+                    "\"продовжуй\", щоб я доробив (напр. додав слова, про які йшлося)."
+                )
+                collected.append(fallback)
+                out_queue.put(fallback)
+                break
 
             if final.stop_reason != "tool_use":
                 break
