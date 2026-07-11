@@ -73,6 +73,7 @@ function closeNotes() {
 document.getElementById("chat-btn").addEventListener("click", openChat);
 document.getElementById("ch-close").addEventListener("click", closeChat);
 document.getElementById("ch-clear").addEventListener("click", clearChat);
+document.getElementById("ch-tools").addEventListener("click", toggleToolCallsPanel);
 document.getElementById("chat-form").addEventListener("submit", sendChat);
 document.getElementById("notes-btn").addEventListener("click", () => openNotes());
 document.getElementById("notes-close").addEventListener("click", closeNotes);

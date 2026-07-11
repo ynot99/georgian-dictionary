@@ -327,6 +327,35 @@ CHAT_TOOL_EXECUTORS = {
 }
 
 
+def _tool_call_summary(name, tool_input, result):
+    """Короткий підсумок для дзвіночка в чаті: 'тулза — слово/назва'."""
+    if name in ("add_word", "edit_word", "retag_word"):
+        label = tool_input.get("georgian") or result.get("georgian") or "?"
+    elif name == "save_grammar_note":
+        label = tool_input.get("title") or result.get("title") or "?"
+    elif name == "get_grammar_note":
+        label = result.get("title") or f"#{tool_input.get('id', '?')}"
+    else:
+        label = "?"
+    return f"{name} — {label}"
+
+
+def _log_tool_call(conn, name, tool_input, result):
+    conn.execute(
+        "INSERT INTO tool_calls (tool_name, summary, ok, input_json, result_json, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (
+            name,
+            _tool_call_summary(name, tool_input, result),
+            1 if result.get("ok") else 0,
+            json.dumps(tool_input, ensure_ascii=False),
+            json.dumps(result, ensure_ascii=False),
+            utcnow(),
+        ),
+    )
+    conn.commit()
+
+
 def srs_status(level):
     if level <= 0:
         return "нове"
@@ -510,6 +539,29 @@ def api_chat_clear():
     return {"ok": True}
 
 
+@chat_bp.route("/api/tool_calls", methods=["GET"])
+def api_tool_calls():
+    db = get_db()
+    rows = db.execute(
+        "SELECT id, tool_name, summary, ok, input_json, result_json, created_at "
+        "FROM tool_calls ORDER BY id DESC LIMIT 30"
+    ).fetchall()
+    return {
+        "calls": [
+            {
+                "id": r["id"],
+                "tool_name": r["tool_name"],
+                "summary": r["summary"],
+                "ok": bool(r["ok"]),
+                "input": json.loads(r["input_json"]),
+                "result": json.loads(r["result_json"]),
+                "created_at": r["created_at"],
+            }
+            for r in rows
+        ]
+    }
+
+
 def _run_chat_generation(history, system_prompt, out_queue):
     """Виконується у фоновому потоці — незалежно від того, чи клієнт ще читає
     HTTP-відповідь. Якщо вкладку згорнули/закрили посеред стрімінгу, відповідь
@@ -574,6 +626,7 @@ def _run_chat_generation(history, system_prompt, out_queue):
                         except Exception:
                             logger.exception("Помилка виконання інструмента %s", block.name)
                             result = {"ok": False, "error": "внутрішня помилка інструмента"}
+                    _log_tool_call(conn, block.name, block.input, result)
                     tool_results.append({
                         "type": "tool_result",
                         "tool_use_id": block.id,

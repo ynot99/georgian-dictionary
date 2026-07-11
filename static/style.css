@@ -202,6 +202,25 @@ form.add button {
 }
 .msg.pending { color: var(--muted); }
 .ch-note { text-align: center; color: var(--muted); font-size: .85rem; padding: 16px 8px; }
+#tool-calls-panel {
+  overflow-y: auto; max-height: 40%; margin-bottom: 8px;
+  border: 1px solid var(--border); border-radius: 8px; padding: 4px;
+}
+.tc-item + .tc-item { border-top: 1px solid var(--border); }
+.tc-header {
+  display: block; width: 100%; text-align: left; background: none; border: none;
+  cursor: pointer; padding: 6px 4px; font-size: .85rem; color: var(--text);
+}
+.tc-header.tc-error { color: var(--warn); }
+.tc-details { padding: 0 4px 6px 16px; }
+.tc-line {
+  font-size: .78rem; color: var(--muted); overflow-wrap: anywhere;
+  font-family: monospace;
+}
+.tc-line.tc-lookup {
+  font-family: inherit; font-size: .82rem; font-weight: 600; color: var(--text);
+}
+.tc-empty { text-align: center; color: var(--muted); font-size: .85rem; padding: 8px; }
 #chat-form { display: flex; gap: 8px; padding-top: 8px; }
 #chat-input { flex: 1; min-width: 0; }
 #chat-send {

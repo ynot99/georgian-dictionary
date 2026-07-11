@@ -134,12 +134,44 @@ row = conn.execute(
 assert row["translation"] == "інший переклад", "неоднозначний збіг не мав нічого змінювати"
 print("13. неоднозначний збіг -> edit_word ok: False, нічого не змінено")
 
+# --- журнал викликів для дзвіночка (🔔) в чаті ---
+
+calls_before = conn.execute("SELECT COUNT(*) FROM tool_calls").fetchone()[0]
+dict_chat._log_tool_call(
+    conn, "add_word",
+    {"georgian": "test-tool-word", "translation": "тест"},
+    {"ok": True, "uuid": "abc", "georgian": "test-tool-word"},
+)
+row = conn.execute(
+    "SELECT tool_name, summary, ok FROM tool_calls ORDER BY id DESC LIMIT 1"
+).fetchone()
+assert row["tool_name"] == "add_word"
+assert row["summary"] == "add_word — test-tool-word", row["summary"]
+assert row["ok"] == 1
+print("14. _log_tool_call записує підсумок 'тулза — слово' і ok=1 для успіху")
+
+dict_chat._log_tool_call(
+    conn, "edit_word",
+    {"georgian": "test-tool-word"},
+    {"ok": False, "error": "потрібне хоча б одне з: translation, example, tags"},
+)
+row = conn.execute(
+    "SELECT tool_name, summary, ok FROM tool_calls ORDER BY id DESC LIMIT 1"
+).fetchone()
+assert row["ok"] == 0, "невдалий виклик має логуватись з ok=0"
+print("15. _log_tool_call позначає невдалий виклик як ok=0")
+
+calls_after = conn.execute("SELECT COUNT(*) FROM tool_calls").fetchone()[0]
+assert calls_after == calls_before + 2, (calls_before, calls_after)
+print(f"16. кількість записів у tool_calls зросла на 2: {calls_before} -> {calls_after}")
+
 # прибирання
 conn.execute("DELETE FROM words WHERE georgian = ? OR uuid = ?", ("test-tool-word", "test-tool-dup"))
+conn.execute("DELETE FROM tool_calls WHERE summary LIKE '%test-tool-word%'")
 conn.commit()
 final = conn.execute("SELECT COUNT(*) FROM words").fetchone()[0]
 assert final == before, (before, final)
-print(f"14. прибирання: знову {before} слів")
+print(f"17. прибирання: знову {before} слів, {calls_before} записів у tool_calls")
 
 conn.close()
 print("\nВСЕ OK (жодного звернення до Claude API)")

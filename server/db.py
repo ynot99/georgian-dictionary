@@ -93,6 +93,20 @@ def init_db():
                 reviewed_at TEXT NOT NULL
             )
         """)
+        # журнал викликів інструментів чату (add_word/edit_word/тощо) — короткий
+        # підсумок для дзвіночка в чаті, повний вхід/вихід про запас на випадок
+        # питань "а що саме там сталось" (напр. діагностика обірваної відповіді)
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS tool_calls (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                tool_name TEXT NOT NULL,
+                summary TEXT NOT NULL,
+                ok INTEGER NOT NULL,
+                input_json TEXT NOT NULL,
+                result_json TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+        """)
 
 
 def utcnow():

@@ -26,4 +26,11 @@ else:
     assert status == 503 and ".env" in data["error"], (status, data)
     print("2. без ключа -> 503 з підказкою про .env")
 
+status, data = req("/api/tool_calls")
+assert status == 200 and "calls" in data and isinstance(data["calls"], list), data
+if data["calls"]:
+    call = data["calls"][0]
+    assert {"id", "tool_name", "summary", "ok", "input", "result", "created_at"} <= call.keys(), call
+print(f"3. GET /api/tool_calls: {len(data['calls'])} записів")
+
 print("\nВСЕ OK (жодного платного повідомлення до Claude не надіслано)")

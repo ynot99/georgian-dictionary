@@ -161,3 +161,88 @@ async function clearChat() {
     alert("Немає з'єднання з сервером.");
   }
 }
+
+// ---------- 🔔 останні дії інструментів (add_word/edit_word/тощо) ----------
+
+const toolCallsPanel = document.getElementById("tool-calls-panel");
+// які картки розгорнуті — лише в межах сесії, скидається при перезавантаженні
+const expandedToolCalls = new Set();
+
+// поле, за яким тулза ШУКАЛА вже існуюче слово/нотатку (а не додавала як нове)
+// — показуємо окремим рядком "🔎 ...", щоб не плутати з полями, які реально
+// змінились (add_word/save_grammar_note тут немає: там усі поля — дані нового
+// запису, шукати нема що)
+const TOOL_LOOKUP_KEY = {
+  edit_word: "georgian",
+  retag_word: "georgian",
+  get_grammar_note: "id",
+};
+
+function toolCallDetailLines(call) {
+  const input = call.input || {};
+  const lookupKey = TOOL_LOOKUP_KEY[call.tool_name];
+  const lines = [];
+  if (lookupKey && input[lookupKey] !== undefined) {
+    lines.push({ cls: "tc-line tc-lookup", text: `🔎 ${input[lookupKey]}` });
+  }
+  for (const [k, v] of Object.entries(input)) {
+    if (k !== lookupKey) lines.push({ cls: "tc-line", text: `${k}: ${v}` });
+  }
+  if (call.ok) {
+    // uuid — внутрішній технічний ідентифікатор слова, ніде в UI не показується
+    // й нічого не додає до розуміння "що сталось"; інші поля результату
+    // показуємо лише якщо вони відрізняються від уже показаного вводу
+    // (напр. retag_word повертає ПОВНИЙ злитий список тегів, а не лише додані)
+    for (const [k, v] of Object.entries(call.result || {})) {
+      if (k === "ok" || k === "uuid") continue;
+      if (input[k] === v) continue;
+      lines.push({ cls: "tc-line", text: `→ ${k}: ${v}` });
+    }
+  } else {
+    lines.push({ cls: "tc-line", text: `→ помилка: ${(call.result && call.result.error) || "?"}` });
+  }
+  return lines;
+}
+
+function renderToolCalls(calls) {
+  toolCallsPanel.replaceChildren();
+  if (!calls.length) {
+    toolCallsPanel.append(el("p", "tc-empty", "Ще жодного виклику інструментів."));
+    return;
+  }
+  for (const call of calls) {
+    const item = el("div", "tc-item");
+    const header = el("button", "tc-header" + (call.ok ? "" : " tc-error"),
+      `${call.ok ? "✓" : "⚠️"} ${call.summary}`);
+    header.type = "button";
+    const details = el("div", "tc-details");
+    details.hidden = !expandedToolCalls.has(call.id);
+    for (const line of toolCallDetailLines(call)) details.append(el("div", line.cls, line.text));
+    header.onclick = () => {
+      details.hidden = !details.hidden;
+      if (details.hidden) expandedToolCalls.delete(call.id);
+      else expandedToolCalls.add(call.id);
+    };
+    item.append(header, details);
+    toolCallsPanel.append(item);
+  }
+}
+
+// перебудовується щоразу — дії могли статись у фоновій генерації, поки
+// панель була закрита (той самий принцип, що й у openChat())
+async function toggleToolCallsPanel() {
+  if (!toolCallsPanel.hidden) {
+    toolCallsPanel.hidden = true;
+    return;
+  }
+  toolCallsPanel.hidden = false;
+  toolCallsPanel.replaceChildren(el("p", "tc-empty", "Завантаження…"));
+  try {
+    const res = await fetch("/api/tool_calls");
+    if (!res.ok) throw new Error();
+    const data = await res.json();
+    renderToolCalls(data.calls);
+  } catch {
+    toolCallsPanel.replaceChildren(el("p", "tc-empty", "Немає з'єднання з сервером."));
+  }
+}
