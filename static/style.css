@@ -39,7 +39,7 @@ form.add {
   display: flex; flex-direction: column; gap: 10px;
 }
 input, textarea {
-  width: 100%; padding: 12px; font-size: 1.05rem;
+  width: 100%; padding: 12px; font-size: 1.05rem; font-family: inherit;
   border: 1px solid var(--border); border-radius: 8px;
   background: var(--bg); color: var(--text);
 }
