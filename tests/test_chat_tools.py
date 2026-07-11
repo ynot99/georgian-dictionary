@@ -75,7 +75,41 @@ result = dict_chat.execute_retag_word(conn, {
 assert result == {"ok": False, "error": "слово «test-tool-неіснує» не знайдено в словнику"}, result
 print("7. неіснуюче слово -> ok: False")
 
-# кілька слів з однаковим написанням -> жодне не змінюється
+# --- edit_word: виправляє поля наявного слова (переклад/приклад/теги, за бажанням) ---
+
+result = dict_chat.execute_edit_word(conn, {
+    "georgian": "test-tool-word", "translation": "виправлений переклад",
+})
+assert result["ok"] is True and result["translation"] == "виправлений переклад", result
+row = conn.execute(
+    "SELECT translation, example, tags FROM words WHERE georgian = ?", ("test-tool-word",)).fetchone()
+assert row["translation"] == "виправлений переклад"
+assert row["example"] == "приклад", "example не передано -> не мало змінитись"
+assert row["tags"] == "тест, дієслово:test-tool-word", "tags не передано -> не мало змінитись"
+print("8. edit_word виправляє лише передане поле (translation), решта не чіпається")
+
+result = dict_chat.execute_edit_word(conn, {
+    "georgian": "test-tool-word", "tags": "нове",
+})
+assert result["ok"] is True
+row = conn.execute(
+    "SELECT tags FROM words WHERE georgian = ?", ("test-tool-word",)).fetchone()
+assert row["tags"] == "нове", "tags в edit_word мають ПОВНІСТЮ замінювати наявні"
+print("9. edit_word замінює tags повністю (на відміну від retag_word)")
+
+# жодного поля для зміни -> ok: False, нічого не пишеться
+result = dict_chat.execute_edit_word(conn, {"georgian": "test-tool-word"})
+assert result == {"ok": False, "error": "потрібне хоча б одне з: translation, example, tags"}, result
+print("10. edit_word без жодного поля для зміни -> ok: False")
+
+# неіснуюче слово -> ok: False
+result = dict_chat.execute_edit_word(conn, {
+    "georgian": "test-tool-неіснує", "translation": "щось",
+})
+assert result == {"ok": False, "error": "слово «test-tool-неіснує» не знайдено в словнику"}, result
+print("11. edit_word: неіснуюче слово -> ok: False")
+
+# кілька слів з однаковим написанням -> жодне не змінюється (retag_word і edit_word)
 conn.execute(
     "INSERT INTO words (uuid, georgian, translation, example, tags, created_at) "
     "VALUES (?, ?, ?, ?, ?, ?)",
@@ -89,14 +123,23 @@ assert result["ok"] is False and "кілька слів" in result["error"], res
 row = conn.execute(
     "SELECT tags FROM words WHERE uuid = 'test-tool-dup'").fetchone()
 assert row["tags"] == "", "неоднозначний збіг не мав нічого змінювати"
-print("8. неоднозначний збіг (кілька слів з тим самим написанням) -> ok: False, нічого не змінено")
+print("12. неоднозначний збіг (кілька слів з тим самим написанням) -> retag_word ok: False, нічого не змінено")
+
+result = dict_chat.execute_edit_word(conn, {
+    "georgian": "test-tool-word", "translation": "щось",
+})
+assert result["ok"] is False and "кілька слів" in result["error"], result
+row = conn.execute(
+    "SELECT translation FROM words WHERE uuid = 'test-tool-dup'").fetchone()
+assert row["translation"] == "інший переклад", "неоднозначний збіг не мав нічого змінювати"
+print("13. неоднозначний збіг -> edit_word ok: False, нічого не змінено")
 
 # прибирання
 conn.execute("DELETE FROM words WHERE georgian = ? OR uuid = ?", ("test-tool-word", "test-tool-dup"))
 conn.commit()
 final = conn.execute("SELECT COUNT(*) FROM words").fetchone()[0]
 assert final == before, (before, final)
-print(f"9. прибирання: знову {before} слів")
+print(f"14. прибирання: знову {before} слів")
 
 conn.close()
 print("\nВСЕ OK (жодного звернення до Claude API)")

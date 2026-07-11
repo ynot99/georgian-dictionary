@@ -175,6 +175,76 @@ def execute_retag_word(conn, tool_input):
     return {"ok": True, "uuid": row["uuid"], "tags": merged}
 
 
+EDIT_WORD_TOOL = {
+    "name": "edit_word",
+    "description": (
+        "Виправляє помилку в уже ІСНУЮЧОМУ слові словника — переклад, приклад "
+        "і/або теги (теги тут ПОВНІСТЮ ЗАМІНЮЮТЬ наявні, на відміну від "
+        "retag_word, який лише додає). Слово шукається за точним грузинським "
+        "написанням. Використовуй, коли учень вказує на конкретну помилку в "
+        "раніше доданому слові (напр. 'забув переклад', 'приклад невірний') — "
+        "НЕ для звичайного додавання тегів (для цього retag_word) і НЕ для "
+        "нових слів (для цього add_word, бо повторний add_word створив би "
+        "дублікат). Передавай лише те поле, яке справді треба виправити — "
+        "решта лишається як є. Якщо в словнику кілька слів з однаковим "
+        "написанням — жодне не змінюється, повертається помилка з проханням "
+        "уточнити (напр. за перекладом)."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "georgian": {
+                "type": "string",
+                "description": "Точне грузинське написання наявного слова (як у словнику нижче)",
+            },
+            "translation": {"type": "string", "description": "Новий переклад (необов'язково)"},
+            "example": {"type": "string", "description": "Новий приклад речення (необов'язково)"},
+            "tags": {
+                "type": "string",
+                "description": "Нові теги через кому — ЗАМІНЮЮТЬ наявні повністю (необов'язково)",
+            },
+        },
+        "required": ["georgian"],
+    },
+}
+
+
+def execute_edit_word(conn, tool_input):
+    georgian = (tool_input.get("georgian") or "").strip()
+    if not georgian:
+        return {"ok": False, "error": "потрібне georgian"}
+    translation = (tool_input.get("translation") or "").strip()
+    example = (tool_input.get("example") or "").strip()
+    tags = (tool_input.get("tags") or "").strip()
+    if not translation and not example and not tags:
+        return {"ok": False, "error": "потрібне хоча б одне з: translation, example, tags"}
+    matches = conn.execute(
+        "SELECT uuid FROM words WHERE georgian = ?", (georgian,)
+    ).fetchall()
+    if not matches:
+        return {"ok": False, "error": f"слово «{georgian}» не знайдено в словнику"}
+    if len(matches) > 1:
+        return {
+            "ok": False,
+            "error": f"у словнику кілька слів з написанням «{georgian}» — уточни, яке саме",
+        }
+    word_uuid = matches[0]["uuid"]
+    updates = {}
+    if translation:
+        updates["translation"] = translation
+    if example:
+        updates["example"] = example
+    if tags:
+        updates["tags"] = normalize_tags(tags)
+    set_clause = ", ".join(f"{col} = ?" for col in updates)
+    conn.execute(
+        f"UPDATE words SET {set_clause} WHERE uuid = ?",
+        (*updates.values(), word_uuid),
+    )
+    conn.commit()
+    return {"ok": True, "uuid": word_uuid, **updates}
+
+
 SAVE_GRAMMAR_NOTE_TOOL = {
     "name": "save_grammar_note",
     "description": (
@@ -244,10 +314,14 @@ def execute_get_grammar_note(conn, tool_input):
     return {"ok": True, "id": note_id, "title": row["title"], "content": row["content"]}
 
 
-CHAT_TOOLS = [ADD_WORD_TOOL, RETAG_WORD_TOOL, SAVE_GRAMMAR_NOTE_TOOL, GET_GRAMMAR_NOTE_TOOL]
+CHAT_TOOLS = [
+    ADD_WORD_TOOL, RETAG_WORD_TOOL, EDIT_WORD_TOOL,
+    SAVE_GRAMMAR_NOTE_TOOL, GET_GRAMMAR_NOTE_TOOL,
+]
 CHAT_TOOL_EXECUTORS = {
     "add_word": execute_add_word,
     "retag_word": execute_retag_word,
+    "edit_word": execute_edit_word,
     "save_grammar_note": execute_save_grammar_note,
     "get_grammar_note": execute_get_grammar_note,
 }
@@ -349,6 +423,9 @@ def build_tutor_system(db):
 "дієслово:<словникова форма>" (див. опис поля tags), а не лише переказати форми в тексті \
 відповіді — інакше вони не потраплять у SRS-повторення. Якщо учень хоче так само \
 згрупувати форми, які вже є в словнику (не нові) — використай retag_word для кожної з них.
+- Якщо після додавання слова виявляється помилка (забутий переклад, невірний приклад чи \
+теги) — використай edit_word, а НЕ повторний add_word (це створило б дублікат). Передавай \
+лише те поле, яке справді треба виправити.
 - Коли пояснюєш граматичне правило, яке варто зберегти для повторного звернення \
 (особливо якщо учень просить "збережи це правило", або тема повторюється) — використай \
 save_grammar_note. Спочатку перевір список наявних нотаток нижче, щоб не дублювати тему; \
