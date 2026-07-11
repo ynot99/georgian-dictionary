@@ -157,15 +157,20 @@ function renderTagbar() {
   }
 
   if (activeTag && activeTag !== LEECH_TAG && activeTag !== VERB_TAG) {
+    // sticky-контейнер: щоб не гортати панель до самого кінця, коли тегів
+    // уже багато — обидві кнопки в одному елементі, інакше кожна окремо
+    // "прилипала" б до того самого правого краю й перекривала іншу
+    const actions = el("div", "tagbar-actions");
     const renameBtn = el("button", "chip", "✎");
     renameBtn.title = `Перейменувати тег «${activeTag}»`;
     renameBtn.onclick = () => renameTagPrompt(activeTag);
-    tagbar.append(renameBtn);
+    actions.append(renameBtn);
 
     const deleteBtn = el("button", "chip", "🗑");
     deleteBtn.title = `Прибрати тег «${activeTag}» з усіх слів`;
     deleteBtn.onclick = () => deleteTagPrompt(activeTag);
-    tagbar.append(deleteBtn);
+    actions.append(deleteBtn);
+    tagbar.append(actions);
   }
 
   // прокрутка — лише якщо тег справді щойно змінився (не на кожен render())
