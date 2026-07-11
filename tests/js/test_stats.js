@@ -26,6 +26,27 @@ words.length = 0;
 assert.strictEqual(wordOfDay(), null, "порожній словник — нема слова дня");
 words.push(...savedWords);
 
+// регресія: додавання нового слова НЕ має міняти слово дня (раніше воно
+// обиралось як sorted[h % sorted.length] — індекс "плавав" від самої
+// довжини масиву, тож слово дня стрибало щоразу, коли додавалось хоч одне
+// нове слово, навіть у той самий день)
+function wodHash(uuid) {
+  let h = 0;
+  for (const ch of localDateKey() + uuid) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return h;
+}
+const winnerBefore = wordOfDay();
+const winnerHash = wodHash(winnerBefore.uuid);
+let loserUuid = "loser-0", i = 0;
+while (wodHash(loserUuid) >= winnerHash) loserUuid = "loser-" + (++i);
+words.push({
+  uuid: loserUuid, georgian: "ახალი", translation: "новий", example: "",
+  tags: "", created_at: pastStr(0), synced: true,
+});
+assert.strictEqual(wordOfDay().uuid, winnerBefore.uuid,
+  "додавання слова з нижчим хешем не має міняти слово дня");
+words.pop();
+
 // переклад слова дня прихований, доки не "тапнути"; повторний тап ховає назад
 assert.strictEqual(isWodRevealed(), false, "спочатку переклад має бути прихований");
 toggleWod();

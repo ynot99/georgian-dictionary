@@ -2,13 +2,21 @@
 
 // ---------- слово дня та статистика ----------
 
-// детерміноване на день: у всіх рендерах те саме слово, завтра — інше
+// детерміноване на день: у всіх рендерах те саме слово, завтра — інше.
+// Хеш береться ОКРЕМО для кожного слова (дата + його uuid), а не як індекс
+// у "sorted[h % sorted.length]" — інакше додавання нового слова змінює
+// довжину масиву, і те саме h того ж дня вказує вже на зовсім інший індекс
+// (слово дня "стрибало" щоразу, коли додавалось хоч одне нове слово)
 function wordOfDay() {
   if (!words.length) return null;
-  const sorted = [...words].sort((a, b) => (a.uuid < b.uuid ? -1 : 1));
-  let h = 0;
-  for (const ch of localDateKey()) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
-  return sorted[h % sorted.length];
+  const dateKey = localDateKey();
+  let best = null, bestHash = -1;
+  for (const w of words) {
+    let h = 0;
+    for (const ch of dateKey + w.uuid) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+    if (h > bestHash) { bestHash = h; best = w; }
+  }
+  return best;
 }
 
 // переклад слова дня відкривається/ховається по тапу; стан зберігається на
