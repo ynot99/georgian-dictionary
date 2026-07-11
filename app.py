@@ -62,4 +62,7 @@ if __name__ == "__main__":
             "  mkcert не знайдено — офлайн-режим на iPhone працювати не буде (потрібен HTTPS)."
         )
     print()
-    app.run(host="0.0.0.0", port=port, debug=False, ssl_context=ssl_context)
+    # threaded=True: без цього однопотоковий dev-сервер блокує геть усі інші
+    # запити (навіть відкрити сторінку в іншій вкладці) на весь час стрімінгу
+    # відповіді чату — а саме цього фонова генерація й мала уникнути
+    app.run(host="0.0.0.0", port=port, debug=False, ssl_context=ssl_context, threaded=True)

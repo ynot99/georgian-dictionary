@@ -2,7 +2,9 @@
 import json
 import logging
 import os
+import queue
 import sqlite3
+import threading
 import uuid as uuidlib
 
 from flask import Blueprint, Response, request
@@ -17,6 +19,13 @@ if not logger.handlers:
     _handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
     logger.addHandler(_handler)
     logger.setLevel(logging.ERROR)
+
+# Генерація відповіді йде у фоновому потоці, не в HTTP-генераторі — якщо
+# клієнт розірве з'єднання (згорнув вкладку, заблокував телефон), відповідь
+# однаково довариться до кінця і збережеться. Лок — один користувач, один чат
+# за раз; без нього паралельний другий запит переплутав би порядок повідомлень
+# у chat_messages (і платив би за другий виклик Claude одночасно з першим).
+_chat_lock = threading.Lock()
 
 
 def load_env():
@@ -358,6 +367,101 @@ def api_chat_clear():
     return {"ok": True}
 
 
+def _run_chat_generation(history, system_prompt, out_queue):
+    """Виконується у фоновому потоці — незалежно від того, чи клієнт ще читає
+    HTTP-відповідь. Якщо вкладку згорнули/закрили посеред стрімінгу, відповідь
+    однаково доводиться до кінця і зберігається в chat_messages; той, хто
+    споживає out_queue, просто більше не отримує чанків, але сама генерація
+    (і платіж за токени) не переривається на півслові.
+    """
+    collected = []
+    messages = list(history)
+    try:
+        for _ in range(CHAT_TOOL_LOOP_LIMIT):
+            with _chat_client.messages.stream(
+                model=CHAT_MODEL,
+                max_tokens=CHAT_MAX_TOKENS,
+                system=[
+                    {
+                        "type": "text",
+                        "text": system_prompt,
+                        "cache_control": {"type": "ephemeral"},
+                    }
+                ],
+                tools=CHAT_TOOLS,
+                messages=messages,
+            ) as stream:
+                for chunk in stream.text_stream:
+                    collected.append(chunk)
+                    out_queue.put(chunk)
+                final = stream.get_final_message()
+
+            if final.stop_reason != "tool_use":
+                break
+
+            messages.append({"role": "assistant", "content": final.content})
+            tool_results = []
+            # окреме з'єднання з базою — виконується поза контекстом запиту Flask
+            with sqlite3.connect(DB_PATH) as conn:
+                conn.row_factory = sqlite3.Row
+                for block in final.content:
+                    if block.type != "tool_use":
+                        continue
+                    executor = CHAT_TOOL_EXECUTORS.get(block.name)
+                    if executor is None:
+                        result = {"ok": False, "error": f"невідомий інструмент {block.name}"}
+                    else:
+                        try:
+                            result = executor(conn, block.input)
+                        except Exception:
+                            logger.exception("Помилка виконання інструмента %s", block.name)
+                            result = {"ok": False, "error": "внутрішня помилка інструмента"}
+                    tool_results.append({
+                        "type": "tool_result",
+                        "tool_use_id": block.id,
+                        "content": json.dumps(result, ensure_ascii=False),
+                    })
+            messages.append({"role": "user", "content": tool_results})
+        else:
+            # цикл вичерпав ліміт ітерацій, а модель усе ще викликала
+            # інструменти — без цього відповідь обривається одразу після
+            # останньої дії, без жодного пояснювального тексту користувачу
+            logger.error(
+                "Вичерпано CHAT_TOOL_LOOP_LIMIT (%d) — модель ще викликала "
+                "інструменти", CHAT_TOOL_LOOP_LIMIT,
+            )
+            fallback = (
+                "\n\n✅ Дію виконано, але довелось обірвати відповідь — "
+                "забагато кроків поспіль. Постав уточнююче питання, якщо треба деталі."
+            )
+            collected.append(fallback)
+            out_queue.put(fallback)
+    except anthropic.APIStatusError as e:
+        logger.error("Anthropic APIStatusError: %s", e)
+        # помилки API навмисно НЕ йдуть у collected — не зберігаються в історію,
+        # лише показуються в чаті (як і раніше, до фонового потоку)
+        out_queue.put(
+            f"⚠️ Помилка API ({e.status_code}) — перевір ключ і баланс "
+            f"на console.anthropic.com"
+        )
+    except anthropic.APIConnectionError as e:
+        logger.error("Anthropic APIConnectionError: %s", e)
+        out_queue.put("⚠️ Сервер не зміг з'єднатися з api.anthropic.com — перевір інтернет.")
+    except Exception:
+        logger.exception("Неочікувана помилка в чаті")
+        out_queue.put("⚠️ Сталася неочікувана помилка — подробиці в chat_errors.log.")
+    finally:
+        if collected:
+            with sqlite3.connect(DB_PATH) as conn:
+                conn.execute(
+                    "INSERT INTO chat_messages (role, content, created_at) "
+                    "VALUES (?, ?, ?)",
+                    ("assistant", "".join(collected), utcnow()),
+                )
+        out_queue.put(None)   # сигнал кінця для споживача черги
+        _chat_lock.release()
+
+
 @chat_bp.route("/api/chat", methods=["POST"])
 def api_chat_send():
     if _chat_client is None:
@@ -369,107 +473,40 @@ def api_chat_send():
     text = (payload.get("message") or "").strip()
     if not text:
         return {"error": "порожнє повідомлення"}, 400
+    if not _chat_lock.acquire(blocking=False):
+        return {
+            "error": "Чат ще обробляє попереднє повідомлення — зачекай трохи і спробуй знову."
+        }, 409
 
-    db = get_db()
-    db.execute(
-        "INSERT INTO chat_messages (role, content, created_at) VALUES (?, ?, ?)",
-        ("user", text, utcnow()),
-    )
-    db.commit()
-    rows = db.execute(
-        "SELECT role, content FROM chat_messages ORDER BY id DESC LIMIT ?",
-        (CHAT_HISTORY_LIMIT,),
-    ).fetchall()
-    history = [{"role": r["role"], "content": r["content"]} for r in reversed(rows)]
-    while history and history[0]["role"] != "user":
-        history.pop(0)  # історія для API має починатися з user-повідомлення
-    system_prompt = build_tutor_system(db)
+    try:
+        db = get_db()
+        db.execute(
+            "INSERT INTO chat_messages (role, content, created_at) VALUES (?, ?, ?)",
+            ("user", text, utcnow()),
+        )
+        db.commit()
+        rows = db.execute(
+            "SELECT role, content FROM chat_messages ORDER BY id DESC LIMIT ?",
+            (CHAT_HISTORY_LIMIT,),
+        ).fetchall()
+        history = [{"role": r["role"], "content": r["content"]} for r in reversed(rows)]
+        while history and history[0]["role"] != "user":
+            history.pop(0)  # історія для API має починатися з user-повідомлення
+        system_prompt = build_tutor_system(db)
+    except Exception:
+        _chat_lock.release()
+        raise
 
-    def generate():
-        collected = []
-        messages = list(history)
-        try:
-            for _ in range(CHAT_TOOL_LOOP_LIMIT):
-                with _chat_client.messages.stream(
-                    model=CHAT_MODEL,
-                    max_tokens=CHAT_MAX_TOKENS,
-                    system=[
-                        {
-                            "type": "text",
-                            "text": system_prompt,
-                            "cache_control": {"type": "ephemeral"},
-                        }
-                    ],
-                    tools=CHAT_TOOLS,
-                    messages=messages,
-                ) as stream:
-                    for chunk in stream.text_stream:
-                        collected.append(chunk)
-                        yield chunk
-                    final = stream.get_final_message()
+    out_queue = queue.Queue()
+    threading.Thread(
+        target=_run_chat_generation, args=(history, system_prompt, out_queue), daemon=True,
+    ).start()
 
-                if final.stop_reason != "tool_use":
-                    break
+    def stream_from_queue():
+        while True:
+            item = out_queue.get()
+            if item is None:
+                break
+            yield item
 
-                messages.append({"role": "assistant", "content": final.content})
-                tool_results = []
-                # генератор виконується поза контекстом запиту Flask,
-                # тому окреме з'єднання з базою, а не get_db()
-                with sqlite3.connect(DB_PATH) as conn:
-                    conn.row_factory = sqlite3.Row
-                    for block in final.content:
-                        if block.type != "tool_use":
-                            continue
-                        executor = CHAT_TOOL_EXECUTORS.get(block.name)
-                        if executor is None:
-                            result = {"ok": False, "error": f"невідомий інструмент {block.name}"}
-                        else:
-                            try:
-                                result = executor(conn, block.input)
-                            except Exception:
-                                logger.exception("Помилка виконання інструмента %s", block.name)
-                                result = {"ok": False, "error": "внутрішня помилка інструмента"}
-                        tool_results.append({
-                            "type": "tool_result",
-                            "tool_use_id": block.id,
-                            "content": json.dumps(result, ensure_ascii=False),
-                        })
-                messages.append({"role": "user", "content": tool_results})
-            else:
-                # цикл вичерпав ліміт ітерацій, а модель усе ще викликала
-                # інструменти — без цього відповідь обривається одразу після
-                # останньої дії, без жодного пояснювального тексту користувачу
-                logger.error(
-                    "Вичерпано CHAT_TOOL_LOOP_LIMIT (%d) — модель ще викликала "
-                    "інструменти", CHAT_TOOL_LOOP_LIMIT,
-                )
-                fallback = (
-                    "\n\n✅ Дію виконано, але довелось обірвати відповідь — "
-                    "забагато кроків поспіль. Постав уточнююче питання, якщо треба деталі."
-                )
-                collected.append(fallback)
-                yield fallback
-        except anthropic.APIStatusError as e:
-            logger.error("Anthropic APIStatusError: %s", e)
-            yield (
-                f"⚠️ Помилка API ({e.status_code}) — перевір ключ і баланс "
-                f"на console.anthropic.com"
-            )
-        except anthropic.APIConnectionError as e:
-            logger.error("Anthropic APIConnectionError: %s", e)
-            yield "⚠️ Сервер не зміг з'єднатися з api.anthropic.com — перевір інтернет."
-        except Exception:
-            logger.exception("Неочікувана помилка в чаті")
-            yield "⚠️ Сталася неочікувана помилка — подробиці в chat_errors.log."
-        finally:
-            # генератор виконується вже поза контекстом запиту Flask,
-            # тому тут окреме з'єднання з базою, а не get_db()
-            if collected:
-                with sqlite3.connect(DB_PATH) as conn:
-                    conn.execute(
-                        "INSERT INTO chat_messages (role, content, created_at) "
-                        "VALUES (?, ?, ?)",
-                        ("assistant", "".join(collected), utcnow()),
-                    )
-
-    return Response(generate(), mimetype="text/plain; charset=utf-8")
+    return Response(stream_from_queue(), mimetype="text/plain; charset=utf-8")

@@ -6,8 +6,16 @@ const chatOverlay = document.getElementById("chat-overlay");
 registerKeyboardAwareOverlay(chatOverlay);
 const chatLog = document.getElementById("chat-log");
 const chatInput = document.getElementById("chat-input");
-let chatLoaded = false;
+const chatSend = document.getElementById("chat-send");
 let chatBusy = false;
+
+// поки триває стрімінг відповіді — кнопка відправлення показує спінер
+// замість "➤", щоб було видно, чи ще думає, чи вже готово
+function setChatSending(sending) {
+  chatSend.disabled = sending;
+  if (sending) chatSend.replaceChildren(el("span", "spinner"));
+  else chatSend.textContent = "➤";
+}
 
 // Клавіатура доанімовується вже ПІСЛЯ того, як повідомлення прокрутились до
 // низу (мережевий запит зазвичай встигає раніше) — тодішній scrollTop вже не
@@ -70,7 +78,10 @@ async function openChat() {
   syncOverlaysToViewport();
   forceReflow(chatOverlay);
   chatInput.focus();
-  if (chatLoaded) return;
+  // якщо саме зараз у цій вкладці стрімиться відповідь — не перебудовувати
+  // чат під живим бабблом; інакше завжди підтягуємо свіжий стан з сервера:
+  // відповідь могла доробитись у фоні, поки вкладка була згорнута/закрита
+  if (chatBusy) return;
   chatLog.replaceChildren();
   try {
     const res = await fetch("/api/chat");
@@ -86,7 +97,6 @@ async function openChat() {
       chatNote("Привіт! Я твій репетитор грузинської — знаю всі слова з твого словника " +
         "і твій прогрес. Напиши щось українською або грузинською 🙂");
     }
-    chatLoaded = true;
   } catch {
     chatNote("Немає з'єднання з сервером — чат працює лише онлайн, у домашній мережі.");
   }
@@ -98,6 +108,7 @@ async function sendChat(e) {
   const text = chatInput.value.trim();
   if (!text || chatBusy) return;
   chatBusy = true;
+  setChatSending(true);
   chatInput.value = "";
   chatBubble("user", text);
   const bubble = chatBubble("assistant", "…");
@@ -135,6 +146,7 @@ async function sendChat(e) {
       : "Не вдалося з'єднатися з сервером — чат працює лише онлайн.");
   }
   chatBusy = false;
+  setChatSending(false);
   chatInput.focus();
 }
 
