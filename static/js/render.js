@@ -160,7 +160,15 @@ function render() {
     const wTags = tagList(w);
     if (wTags.length) {
       const tagsEl = el("div", "tags");
-      for (const t of wTags) tagsEl.append(el("span", "tag", t));
+      for (const t of wTags) {
+        const tagEl = el("span", "tag tappable", t);
+        tagEl.onclick = (e) => {
+          e.stopPropagation();   // інакше клік по тегу ще й перемкнув би переклад картки
+          activeTag = activeTag === t ? null : t;
+          render();
+        };
+        tagsEl.append(tagEl);
+      }
       body.append(tagsEl);
     }
     if (!w.synced) body.append(el("div", "pending", "⏳ не синхронізовано"));
