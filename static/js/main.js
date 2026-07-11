@@ -9,6 +9,12 @@ document.getElementById("add-form").addEventListener("submit", (e) => {
   const example = document.getElementById("f-example").value.trim();
   const tags = document.getElementById("f-tags").value;
   if (!georgian || !translation) return;
+  // попередження, не заборона: у грузинській бувають омоніми (однакове
+  // написання, різне значення) — рідкісний, але легітимний випадок
+  const dup = words.find((w) => w.georgian === georgian);
+  if (dup && !confirm(`«${georgian}» вже є в словнику (переклад: ${dup.translation}). Додати ще раз?`)) {
+    return;
+  }
   addWord(georgian, translation, example, tags);
   e.target.reset();
   document.getElementById("f-georgian").focus();
