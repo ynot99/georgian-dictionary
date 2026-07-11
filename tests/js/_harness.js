@@ -18,7 +18,7 @@ function fakeEl() {
     addEventListener() {}, value: "", textContent: "", hidden: false,
     disabled: false, files: [], classList: { toggle() {} }, className: "",
     replaceChildren() {}, append() {}, click() {}, focus() {}, remove() {},
-    scrollIntoView() {}, scrollLeft: 0,
+    scrollIntoView() {}, scrollLeft: 0, querySelector() { return null; },
     style: {}, lang: "", placeholder: "", title: "",
   };
 }

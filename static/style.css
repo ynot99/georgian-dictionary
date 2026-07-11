@@ -102,9 +102,11 @@ form.add button {
 .tagbar::-webkit-scrollbar { display: none; }
 .tagbar-actions {
   position: sticky; right: 0; display: flex; gap: 6px; flex-shrink: 0;
-  padding-left: 6px; background: var(--bg);
-  box-shadow: -8px 0 8px -6px rgba(0, 0, 0, .35);
+  padding-left: 6px; background: var(--bg); margin-left: auto;
 }
+/* тінь лише коли теги справді ховаються під контейнером за скролом —
+   додається/знімається з JS (renderTagbar) через scrollWidth/clientWidth */
+.tagbar-actions.overflowing { box-shadow: -8px 0 8px -6px rgba(0, 0, 0, .35); }
 .chip {
   padding: 5px 12px; border-radius: 999px; font-size: .8rem;
   border: 1px solid var(--border); background: var(--card);

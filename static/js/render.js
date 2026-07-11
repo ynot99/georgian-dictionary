@@ -18,6 +18,21 @@ const revealedWords = new Set();
 // скрол користувача) — тому порівнюємо з попереднім значенням
 let lastActiveTagForScroll;
 
+// сам елемент панелі тегів стабільний між рендерами (перебудовуються лише
+// чипи всередині) — тримаємо один раз, щоб підписатись на scroll лише раз
+const tagbarEl = document.getElementById("tagbar");
+
+// тінь на sticky-контейнері кнопок ✎/🗑 — не просто "є переповнення взагалі",
+// а саме "у поточній позиції скролу праворуч ще щось приховано". Викликається
+// і з renderTagbar() (після перебудови чипів), і при самому скролі панелі.
+function updateTagbarShadow() {
+  const actions = tagbarEl.querySelector(".tagbar-actions");
+  if (!actions) return;
+  const hiddenToRight = tagbarEl.scrollWidth - tagbarEl.scrollLeft - tagbarEl.clientWidth > 1;
+  actions.classList.toggle("overflowing", hiddenToRight);
+}
+tagbarEl.addEventListener("scroll", updateTagbarShadow);
+
 function el(tag, cls, text) {
   const node = document.createElement(tag);
   if (cls) node.className = cls;
@@ -84,7 +99,7 @@ async function deleteTagPrompt(tag) {
 }
 
 function renderTagbar() {
-  const tagbar = document.getElementById("tagbar");
+  const tagbar = tagbarEl;
   const counts = new Map();       // звичайні теги
   const verbCounts = new Map();   // "дієслово:*" — окремо, згорнуті під один чип
   for (const w of words) {
@@ -179,6 +194,8 @@ function renderTagbar() {
     else if (activeChipEl) activeChipEl.scrollIntoView({ block: "nearest", inline: "nearest" });
   }
   lastActiveTagForScroll = activeTag;
+
+  updateTagbarShadow();   // після можливої прокрутки вище — щоб врахувати фінальну позицію
 }
 
 function render() {
