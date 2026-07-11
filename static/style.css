@@ -238,6 +238,7 @@ form.add button {
 #rv-reveal { background: var(--accent); color: #fff; }
 #rv-wrong { background: var(--card); border: 1px solid var(--border); color: var(--text); }
 #rv-right { background: var(--accent); color: #fff; }
+#rv-retry-wrong { background: var(--accent); color: #fff; }
 #notes-review { flex: 1; display: flex; flex-direction: column; min-height: 0; }
 #nr-reveal { background: var(--accent); color: #fff; }
 #nr-wrong { background: var(--card); border: 1px solid var(--border); color: var(--text); }

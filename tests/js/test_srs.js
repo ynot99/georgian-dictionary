@@ -56,6 +56,50 @@ grade(true);
 assert.strictEqual(reviews[key2].lapses, LEECH_THRESHOLD, "успішна відповідь не скидає lapses");
 assert.ok(isLeech(second.w), "leech-позначка лишається навіть після успішного повторення");
 
+// сесійний список провалених карток ("Ще раз провалені"): провал лишається
+// зафіксованим, навіть якщо картку виправив пізніше в тій же сесії
+reviews = {};
+sessionWrong = [];
+sessionWrongKeys = new Set();
+queue = [{ w: words[0], dir: "ka2uk" }, { w: words[1], dir: "ka2uk" }];
+currentCard = null;
+doneCount = 0;
+nextCard();
+grade(false);   // words[0] провалено -> в кінець черги і в sessionWrong
+assert.strictEqual(sessionWrong.length, 1, "провал потрапляє в sessionWrong");
+grade(true);    // words[1] — правильно
+grade(true);    // words[0] повернулось після провалу — цього разу правильно
+assert.strictEqual(currentCard, null, "черга має закінчитись");
+assert.strictEqual(sessionWrong.length, 1, "sessionWrong не чиститься від виправлення в тій же сесії");
+assert.strictEqual(sessionWrong[0].w.uuid, "w1");
+
+const levelBeforeRetry = reviews["w1|ka2uk"].level;
+const dueBeforeRetry = reviews["w1|ka2uk"].due_at;
+
+retryWrong();
+assert.strictEqual(sessionWrong.length, 0, "retryWrong очищує список для нового міні-раунду");
+assert.strictEqual(currentCard.w.uuid, "w1", "retryWrong перезапускає чергу лише провалених карток");
+assert.ok(inRetryRound, "прапорець міні-раунду має бути увімкнений");
+grade(true);   // практика: успіх у міні-раунді НЕ рухає SRS-прогрес далі
+assert.strictEqual(currentCard, null, "міні-раунд з однієї картки одразу завершується");
+assert.strictEqual(doneCount, 1, "doneCount рахує лише поточний міні-раунд, не всю сесію");
+assert.strictEqual(reviews["w1|ka2uk"].level, levelBeforeRetry, "успіх у міні-раунді не рухає level далі");
+assert.strictEqual(reviews["w1|ka2uk"].due_at, dueBeforeRetry, "успіх у міні-раунді не рухає due_at далі");
+
+// провал у міні-раунді — це НЕ безкоштовна практика: рахується як справжній
+// провал (level скидається, lapses росте), і слово знову йде в sessionWrong
+sessionWrong = [{ w: words[0], dir: "ka2uk" }];
+sessionWrongKeys = new Set(["w1|ka2uk"]);
+const lapsesBeforeRetryFail = reviews["w1|ka2uk"].lapses;
+retryWrong();
+grade(false);
+assert.strictEqual(reviews["w1|ka2uk"].level, 0, "провал у міні-раунді скидає level так само, як звичайний провал");
+assert.strictEqual(reviews["w1|ka2uk"].lapses, lapsesBeforeRetryFail + 1, "провал у міні-раунді рахується в lapses");
+assert.strictEqual(sessionWrong.length, 1, "провал у міні-раунді знову потрапляє в sessionWrong для наступного раунду");
+
+startReview();
+assert.strictEqual(inRetryRound, false, "нова звичайна сесія скидає прапорець міні-раунду");
+
 // прострочена картка потрапляє в due, майбутня — ні
 reviews = {
   "w1|ka2uk": { word_uuid: "w1", direction: "ka2uk", level: 2, due_at: "2020-01-01 00:00:00", reviewed_at: "2020-01-01 00:00:00", synced: true },

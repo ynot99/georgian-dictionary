@@ -25,12 +25,18 @@ kd(ev("2"));
 assert.strictEqual(doneCount, doneBefore + 1, "2 = знав");
 assert.ok(rvWrong.hidden, "наступна картка — знову лицьова сторона");
 
-// пробіл теж відкриває; 1 = "не знав" (картка повертається в чергу)
+// пробіл теж відкриває; 1 = "не знав" (лічильник провалів росте, level = 0)
 kd(ev(" "));
 assert.ok(!rvWrong.hidden, "пробіл має відкрити відповідь");
-const qlen = queue.length;
+const cardBefore1 = currentCard;
+const key1 = cardBefore1.w.uuid + "|" + cardBefore1.dir;
+const lapsesBefore = (reviews[key1] && reviews[key1].lapses) || 0;
 kd(ev("1"));
-assert.ok(queue.length === qlen + 1 || currentCard !== null, "1 = не знав, картка в черзі");
+assert.strictEqual(reviews[key1].level, 0, "1 = не знав -> level 0");
+assert.strictEqual(reviews[key1].lapses, lapsesBefore + 1, "1 = не знав -> lapses +1");
+// єдине слово в тесті — забута картка повертається в чергу і одразу ж
+// з'являється знову (більше нема з чого вибирати)
+assert.strictEqual(currentCard, cardBefore1, "картка має повернутись у чергу, а не зникнути");
 
 // Enter на лицьовій стороні без вердикту не має оцінювати
 assert.ok(rvWrong.hidden);
