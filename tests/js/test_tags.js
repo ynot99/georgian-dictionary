@@ -51,6 +51,21 @@ assert.strictEqual(c.due[0].w.uuid, "w2");
 activeTag = null;
 reviews = {};
 
+// віртуальний фільтр "дієслова" (VERB_TAG): збігається з будь-яким тегом
+// "дієслово:*", незалежно від конкретної форми; конкретний під-тег фільтрує точніше
+words = [
+  { uuid: "v1", georgian: "მივდივარ", translation: "я йду", example: "", tags: "дієслово:წასვლა", created_at: "2026-07-01 10:00:00", synced: true },
+  { uuid: "v2", georgian: "წავედი", translation: "я пішов", example: "", tags: "дієслово:წასვლა, минулий", created_at: "2026-07-01 10:00:00", synced: true },
+  { uuid: "v3", georgian: "ვჭამ", translation: "я їм", example: "", tags: "дієслово:ჭამა", created_at: "2026-07-01 10:00:00", synced: true },
+  { uuid: "v4", georgian: "წყალი", translation: "вода", example: "", tags: "напої", created_at: "2026-07-01 10:00:00", synced: true },
+];
+activeTag = VERB_TAG;
+assert.strictEqual(wordsInScope().length, 3, "усі слова з дієслівним тегом, незалежно від конкретної форми");
+assert.ok(wordsInScope().every((w) => w.uuid !== "v4"), "звичайний тег (напої) не потрапляє під VERB_TAG");
+activeTag = "дієслово:წასვლა";
+assert.deepStrictEqual(wordsInScope().map((w) => w.uuid).sort(), ["v1", "v2"], "конкретне дієслово фільтрує точніше за агрегат");
+activeTag = null;
+
 // addWord нормалізує теги
 addWord("კატა", "кіт", "", " Тварини,тварини ");
 assert.strictEqual(words[0].tags, "тварини");
