@@ -26,26 +26,30 @@ words.length = 0;
 assert.strictEqual(wordOfDay(), null, "порожній словник — нема слова дня");
 words.push(...savedWords);
 
-// регресія: додавання нового слова НЕ має міняти слово дня (раніше воно
-// обиралось як sorted[h % sorted.length] — індекс "плавав" від самої
-// довжини масиву, тож слово дня стрибало щоразу, коли додавалось хоч одне
-// нове слово, навіть у той самий день)
-function wodHash(uuid) {
-  let h = 0;
-  for (const ch of localDateKey() + uuid) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
-  return h;
-}
-const winnerBefore = wordOfDay();
-const winnerHash = wodHash(winnerBefore.uuid);
-let loserUuid = "loser-0", i = 0;
-while (wodHash(loserUuid) >= winnerHash) loserUuid = "loser-" + (++i);
+// вага: чим нижчий рівень (гірше вивчено) — тим вища вага; без повторень
+// (рівень 0 з обох напрямків) — максимальна вага
+assert.ok(wodWeight(words[0]) < wodWeight(words[1]),
+  "слово 'a' (рівні 5/2) має нижчу вагу за 'b' (без повторень, рівень 0)");
+
+// регресія: підміняємо wodKey контрольованими значеннями, щоб детерміновано
+// відтворити саме той баг, що був — раніше слово дня обиралось як
+// sorted[h % sorted.length], і сам ІНДЕКС "плавав" від довжини масиву, тож
+// вибір стрибав щоразу, коли додавалось хоч одне нове слово того ж дня.
+// Зараз вибір — argmax власного ключа кожного слова, тож має лишатись
+// незмінним, доки в нового слова ключ нижчий за вже переможне
+const origWodKey = wodKey;
+const fixedKeys = { a: 0.9, b: 0.1, c: 0.2 };
+wodKey = (w) => fixedKeys[w.uuid];
+assert.strictEqual(wordOfDay().uuid, "a", "має обрати слово з найвищим ключем");
 words.push({
-  uuid: loserUuid, georgian: "ახალი", translation: "новий", example: "",
+  uuid: "d", georgian: "ოთხი", translation: "чотири", example: "",
   tags: "", created_at: pastStr(0), synced: true,
 });
-assert.strictEqual(wordOfDay().uuid, winnerBefore.uuid,
-  "додавання слова з нижчим хешем не має міняти слово дня");
+fixedKeys.d = 0.05;   // нижчий ключ, ніж усі інші
+assert.strictEqual(wordOfDay().uuid, "a",
+  "нове слово з нижчим ключем не має міняти вибір (незалежно від довжини масиву)");
 words.pop();
+wodKey = origWodKey;
 
 // переклад слова дня прихований, доки не "тапнути"; повторний тап ховає назад
 assert.strictEqual(isWodRevealed(), false, "спочатку переклад має бути прихований");
