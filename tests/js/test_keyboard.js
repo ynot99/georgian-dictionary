@@ -79,10 +79,16 @@ sessionWrong = [{ w: words[0], dir: "ka2uk" }];
 sessionWrongKeys = new Set(["w1|ka2uk"]);
 nextCard();
 assert.ok(!rvRetryWrong.hidden, "є що повторити -> кнопка видима");
-kd(ev("Enter"));
+let prevented = false;
+kd({ key: "Enter", preventDefault: () => { prevented = true; } });
 assert.ok(!overlay.hidden, "Enter з видимою кнопкою retry не має закривати вікно");
 assert.ok(inRetryRound, "Enter має запустити міні-раунд 'Ще раз провалені'");
 assert.strictEqual(currentCard.w.uuid, "w1", "міні-раунд запускається саме з провалених карток");
+// регресія: без preventDefault фокус, що лишився на прихованому полі вводу
+// попередньої картки, змушував браузер ще й сабмітнути форму #rv-type одразу
+// після retryWrong() — Enter "відповідав" за перше слово нового міні-раунду
+// тим самим натисканням
+assert.ok(prevented, "Enter на фінальному екрані має викликати preventDefault");
 
 // фінальний екран, повторювати нічого (кнопки нема): Enter закриває — стара
 // поведінка лишається незмінною

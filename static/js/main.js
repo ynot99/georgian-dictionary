@@ -165,6 +165,11 @@ window.addEventListener("keydown", (e) => {
     // стара поведінка (закрити). Escape вище вже завжди закриває незалежно
     // від цього — свідомий "пропустити" варіант
     if (e.key === "Enter") {
+      // без preventDefault фокус, що лишився на прихованому полі вводу
+      // попередньої картки, змушує браузер ще й сабмітнути форму #rv-type
+      // одразу після retryWrong() — і Enter "відповідає" за перше слово
+      // нового міні-раунду тим самим натисканням
+      e.preventDefault();
       if (!rvRetryWrong.hidden) retryWrong();
       else closeReview();
     }
