@@ -71,12 +71,38 @@ assert.ok(!overlay.hidden);
 kd(ev("Escape"));
 assert.ok(overlay.hidden, "Escape має закрити сесію");
 
-// фінальний екран: Enter закриває
+// фінальний екран, є що повторити (кнопка "Ще раз провалені" видима):
+// Enter одразу починає міні-раунд, а НЕ закриває вікно
 queue = [];
 overlay.hidden = false;
+sessionWrong = [{ w: words[0], dir: "ka2uk" }];
+sessionWrongKeys = new Set(["w1|ka2uk"]);
 nextCard();
+assert.ok(!rvRetryWrong.hidden, "є що повторити -> кнопка видима");
 kd(ev("Enter"));
-assert.ok(overlay.hidden, "Enter має закрити фінальний екран");
+assert.ok(!overlay.hidden, "Enter з видимою кнопкою retry не має закривати вікно");
+assert.ok(inRetryRound, "Enter має запустити міні-раунд 'Ще раз провалені'");
+assert.strictEqual(currentCard.w.uuid, "w1", "міні-раунд запускається саме з провалених карток");
+
+// фінальний екран, повторювати нічого (кнопки нема): Enter закриває — стара
+// поведінка лишається незмінною
+queue = [];
+sessionWrong = [];
+sessionWrongKeys = new Set();
+nextCard();
+assert.ok(rvRetryWrong.hidden, "нема провалів -> кнопки нема");
+kd(ev("Enter"));
+assert.ok(overlay.hidden, "Enter без кнопки retry закриває фінальний екран, як і раніше");
+
+// Escape на фінальному екрані завжди закриває ("пропустити"), незалежно від
+// того, чи є що повторити
+queue = [];
+overlay.hidden = false;
+sessionWrong = [{ w: words[0], dir: "ka2uk" }];
+sessionWrongKeys = new Set(["w1|ka2uk"]);
+nextCard();
+kd(ev("Escape"));
+assert.ok(overlay.hidden, "Escape завжди закриває фінальний екран, навіть якщо є що повторити");
 
 console.log("ВСЕ OK: клавіатурне керування сесією коректне");
 `);

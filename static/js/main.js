@@ -160,7 +160,14 @@ window.addEventListener("keydown", (e) => {
     return;
   }
   if (currentCard === null) {           // фінальний екран
-    if (e.key === "Enter") closeReview();
+    // якщо є що повторити — Enter одразу починає міні-раунд "Ще раз
+    // провалені", а не закриває вікно; якщо кнопки нема (нема провалів) —
+    // стара поведінка (закрити). Escape вище вже завжди закриває незалежно
+    // від цього — свідомий "пропустити" варіант
+    if (e.key === "Enter") {
+      if (!rvRetryWrong.hidden) retryWrong();
+      else closeReview();
+    }
     return;
   }
   const grading = !rvWrong.hidden;      // екран оцінки "знав/не знав"
