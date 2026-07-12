@@ -134,6 +134,15 @@ assert.strictEqual(c.due[0].w.uuid, "w1");
 assert.strictEqual(c.due[0].dir, "ka2uk");
 assert.strictEqual(c.fresh.length, 2, "w2 має 2 нові картки: " + c.fresh.length);
 
+// nextDueAt: серед майбутніх карток бере найРАНІШУ, ігноруючи прострочені
+// (due_at <= now, вони й так уже в c.due) — сама due/fresh наявність її не
+// цікавить, це окрема ручка, яку render.js викликає лише коли total === 0
+assert.strictEqual(nextDueAt(), "2099-01-01 00:00:00", "єдина майбутня картка серед наявних (w1|uk2ka)");
+
+reviews["w2|ka2uk"] = { word_uuid: "w2", direction: "ka2uk", level: 1, due_at: "2099-03-01 00:00:00", reviewed_at: "2026-07-01 00:00:00", synced: true };
+reviews["w2|uk2ka"] = { word_uuid: "w2", direction: "uk2ka", level: 1, due_at: "2099-02-01 00:00:00", reviewed_at: "2026-07-01 00:00:00", synced: true };
+assert.strictEqual(nextDueAt(), "2099-01-01 00:00:00", "серед кількох майбутніх карток обирає найранішу (не останню додану)");
+
 // рівень не росте вище стелі INTERVALS.length
 reviews["w1|ka2uk"].level = 7;
 queue = [{ w: words[0], dir: "ka2uk" }];

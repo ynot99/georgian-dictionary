@@ -284,4 +284,24 @@ function render() {
   const label = activeTag ? `🎓 Повторення: ${scopeLabel}` : "🎓 Повторення";
   reviewBtn.textContent = total ? `${label} (${total})` : label;
   reviewBtn.disabled = !total;
+
+  const nextEl = document.getElementById("review-next");
+  const next = !total && nextDueAt();
+  nextEl.hidden = !next;
+  if (next) nextEl.textContent = formatNextDue(next);
+}
+
+// due_at зберігається в UTC (nowStr()/dueDateStr() з toISOString()) — тому
+// перед показом користувачу переводимо назад у його локальний час
+function formatNextDue(dueAtUtc) {
+  const due = new Date(dueAtUtc.replace(" ", "T") + "Z");
+  const now = new Date();
+  const time = due.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const dueDay = localDateKey(due);
+  if (dueDay === localDateKey(now)) return `Наступне повторення сьогодні о ${time}`;
+  if (dueDay === localDateKey(new Date(now.getTime() + 86400000))) {
+    return `Наступне повторення завтра о ${time}`;
+  }
+  const dateStr = due.toLocaleDateString([], { day: "numeric", month: "short" });
+  return `Наступне повторення ${dateStr} о ${time}`;
 }

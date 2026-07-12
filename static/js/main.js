@@ -60,6 +60,68 @@ rvStrict.addEventListener("click", () => {
   if (!rvType.hidden) rvInput.focus();
 });
 
+// ---------- щоденне нагадування (.ics) ----------
+
+// Не push-сповіщення (той вимагав би, щоб сервер на комп'ютері був завжди
+// увімкнений) — замість цього генеруємо файл календаря, який телефон додає
+// у СВІЙ календар (Google/Apple Calendar), і той сам про все нагадує далі,
+// повністю незалежно від того, чи запущений цей застосунок чи сервер
+function pad2(n) {
+  return String(n).padStart(2, "0");
+}
+
+function buildReminderIcs(hh, mm) {
+  const now = new Date();
+  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hh, mm, 0);
+  if (start < now) start.setDate(start.getDate() + 1);   // час сьогодні вже минув -> з завтра
+  const dtstart = `${start.getFullYear()}${pad2(start.getMonth() + 1)}${pad2(start.getDate())}` +
+    `T${pad2(hh)}${pad2(mm)}00`;
+  const dtstamp = now.toISOString().replace(/[-:]/g, "").split(".")[0] + "Z";
+  const uid = crypto.randomUUID() + "@dictionary-app";
+  return [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "PRODID:-//dictionary-app//uk",
+    "BEGIN:VEVENT",
+    `UID:${uid}`,
+    `DTSTAMP:${dtstamp}`,
+    `DTSTART:${dtstart}`,
+    "DURATION:PT5M",
+    "RRULE:FREQ=DAILY",
+    "SUMMARY:📖 Перевір словник",
+    "DESCRIPTION:Час перевірити повторення та слово дня в словнику.",
+    "BEGIN:VALARM",
+    "ACTION:DISPLAY",
+    "DESCRIPTION:Перевір словник",
+    "TRIGGER:PT0M",
+    "END:VALARM",
+    "END:VEVENT",
+    "END:VCALENDAR",
+  ].join("\r\n") + "\r\n";
+}
+
+function downloadReminder() {
+  const input = prompt("О котрій годині нагадувати щодня? (напр. 20:00)", "20:00");
+  if (input === null) return;
+  const m = /^(\d{1,2}):(\d{2})$/.exec(input.trim());
+  if (!m || +m[1] > 23 || +m[2] > 59) {
+    alert("Невірний формат часу — введи як ГГ:ХХ, напр. 20:00");
+    return;
+  }
+  const blob = new Blob([buildReminderIcs(+m[1], +m[2])], { type: "text/calendar;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "dictionary-reminder.ics";
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  alert("Файл завантажено — відкрий його, щоб додати щоденне нагадування у свій календар.");
+}
+
+document.getElementById("reminder-btn").addEventListener("click", downloadReminder);
+
 function closeChat() {
   chatOverlay.hidden = true;
   unlockBodyScroll();
