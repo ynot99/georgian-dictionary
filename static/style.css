@@ -154,6 +154,13 @@ form.add button {
 .rv-dir { color: var(--muted); font-size: .85rem; }
 .rv-front { font-size: 1.9rem; font-weight: 700; overflow-wrap: anywhere; }
 .rv-back { font-size: 1.4rem; color: var(--accent); overflow-wrap: anywhere; }
+/* нотатка з граматики — це повний текст (не одне слово, як переклад у
+   повторенні слів, для якого .rv-back-центрування якраз доречне) — тож тут
+   вирівнюємо ліворуч і зберігаємо переноси рядків оригінального тексту */
+#nr-content {
+  align-self: stretch; text-align: left; white-space: pre-wrap;
+  font-size: 1rem; color: var(--text);
+}
 .rv-ex { color: var(--muted); font-style: italic; font-size: .95rem; }
 .rv-cloze { color: var(--muted); font-style: italic; font-size: .9rem; }
 .rv-done { font-size: 1.2rem; }
