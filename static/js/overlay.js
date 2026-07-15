@@ -11,11 +11,25 @@
 let bodyScrollY = 0;
 let openOverlayCount = 0;
 
+// position:fixed на body лікує саме iOS-механізм вище, тож потрібен лише там,
+// де є екранна клавіатура. На десктопі він зайвий (скрол там тримає сам
+// overflow:hidden) і навіть шкідливий: fixed-body стає containing block для
+// абсолютно позиційованих елементів, які сторонні розширення вкидають у body
+// (напр. попап Google Translate при виділенні слова). Такий елемент рахує
+// координати від вьюпорта, а малюється від коробки body — а вона і вужча
+// (max-width: 560px, центрована), і зсунута на -scrollY. Звідси попап або їде
+// вбік, або взагалі вилітає за верхній край. Перевіряємо при кожному локу, а
+// не раз при завантаженні — так тест може пройти обидві гілки.
+function needsFixedBodyLock() {
+  return !!(window.matchMedia && window.matchMedia("(pointer: coarse)").matches);
+}
+
 function lockBodyScroll() {
   if (openOverlayCount++ > 0) return;
   bodyScrollY = window.scrollY;
   document.documentElement.style.overflow = "hidden";
   document.body.style.overflow = "hidden";
+  if (!needsFixedBodyLock()) return;
   document.body.style.position = "fixed";
   document.body.style.top = `-${bodyScrollY}px`;
   document.body.style.left = "0";
