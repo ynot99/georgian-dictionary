@@ -1,12 +1,18 @@
 """Точка входу: створення Flask-застосунку, реєстрація модулів, запуск сервера."""
 import sys
+import threading
+import time
+from datetime import datetime
 
 from flask import Flask, render_template
 
+from backup_db import create_backup, last_backup_at, prune_backups
 from server.chat import chat_bp
 from server.db import close_db, init_db
 from server.mkcert import CERT_FILE, KEY_FILE, ensure_cert, find_mkcert, local_ip, mkcert_bp
 from server.words import words_bp
+
+AUTO_BACKUP_INTERVAL = 24 * 60 * 60  # раз на добу
 
 app = Flask(__name__)
 app.register_blueprint(words_bp)
@@ -32,10 +38,45 @@ def service_worker():
     return app.send_static_file("sw.js")
 
 
+def _seconds_until_next_backup(last, now):
+    """0, якщо бекапів ще не було або інтервал уже минув (робимо одразу);
+    інакше — скільки секунд лишилось чекати до наступного запланованого
+    бекапу. Винесено окремою чистою функцією (без сну/циклу), щоб можна було
+    перевірити тестом саму логіку "скільки чекати", не запускаючи фоновий потік."""
+    if last is None:
+        return 0
+    return max(0, AUTO_BACKUP_INTERVAL - (now - last).total_seconds())
+
+
+def _auto_backup_loop():
+    """Бекап раз на AUTO_BACKUP_INTERVAL — але прив'язаний до РЕАЛЬНОГО часу
+    останнього бекапу (з файлів у backups/), а не до "сервер працює 24 год
+    поспіль": комп'ютер не завжди увімкнений (dual-boot, вимкнення на ніч),
+    тож при кожному старті рахуємо, скільки часу лишилось до наступного
+    запланованого бекапу. Якщо бекапів ще не було, або минуло більше
+    інтервалу (комп'ютер довго був вимкнений) — робимо одразу; якщо минуло
+    менше (частий перезапуск сервера) — чекаємо залишок, щоб не плодити
+    майже-дублікати."""
+    while True:
+        wait = _seconds_until_next_backup(last_backup_at(), datetime.now())
+        if wait > 0:
+            time.sleep(wait)
+        try:
+            create_backup()
+            prune_backups()
+        except Exception as e:
+            # НЕ AUTO_BACKUP_INTERVAL: якщо create_backup() постійно падає,
+            # last_backup_at() не оновлюється, і без цієї паузи цикл вище
+            # рахував би "прострочено" (wait=0) і молотив спробами миттєво
+            print(f"  Автобекап бази не вдався: {e}")
+            time.sleep(60)
+
+
 if __name__ == "__main__":
     # консоль Windows за замовчуванням не UTF-8
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     init_db()
+    threading.Thread(target=_auto_backup_loop, daemon=True).start()
 
     ip = local_ip()
     mkcert_path = find_mkcert()
