@@ -19,7 +19,7 @@ function fakeEl() {
     disabled: false, files: [], classList: { toggle() {} }, className: "",
     replaceChildren() {}, append() {}, click() {}, focus() {}, remove() {},
     scrollIntoView() {}, scrollLeft: 0, querySelector() { return null; },
-    style: {}, lang: "", placeholder: "", title: "",
+    style: {}, lang: "", placeholder: "", title: "", scrollHeight: 0,
   };
 }
 
@@ -44,6 +44,7 @@ function runInAppContext(testCode) {
     body: { append() {}, style: {} },
     documentElement: { style: {} },
   };
+  global.getComputedStyle = () => ({ borderTopWidth: "0px", borderBottomWidth: "0px" });
   // Node 24+ уже має вбудований global.navigator лише з getter'ом — пряме
   // присвоєння впало б у строгому режимі, тож перевизначаємо дескриптор.
   Object.defineProperty(global, "navigator", {

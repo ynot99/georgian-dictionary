@@ -19,9 +19,67 @@ function saveChatDraft() {
   else localStorage.removeItem(CHAT_DRAFT_KEY);
 }
 
+// росте разом із текстом (до ~5 рядків), далі — внутрішній скрол; висота
+// перерахована з нуля щоразу (не лише росте), інакше після видалення тексту
+// (напр. очищення чернетки чи Backspace) поле лишалось би розтягнутим
+const CHAT_INPUT_MAX_HEIGHT = 140;
+function autoResizeChatInput() {
+  // чи лог зараз унизу — заміряти ДО зміни висоти textarea (поки #chat-log ще
+  // не стиснувся); лише тоді підколемо назад до низу. Інакше, якщо читаєш
+  // історію прокрутивши вгору, кожна набрана літера смикала б лог донизу
+  const logAtBottom =
+    chatLog.scrollHeight - chatLog.scrollTop - chatLog.clientHeight < 2;
+  // overflow: hidden під час заміру — інакше на межі переповнення сама поява
+  // скролу (резервує собі трохи місця) зсуває scrollHeight, і на деяких
+  // кількостях рядків (не завжди, залежить від субпіксельного округлення
+  // line-height) скрол лишався видимим навіть після точного підбору висоти
+  chatInput.style.overflowY = "hidden";
+  chatInput.style.height = "auto";
+  // scrollHeight ніколи не враховує border, а тут box-sizing: border-box —
+  // без цієї добавки контент завжди на border завеликий за встановлену
+  // висоту
+  const cs = getComputedStyle(chatInput);
+  const border = parseFloat(cs.borderTopWidth) + parseFloat(cs.borderBottomWidth);
+  const contentHeight = chatInput.scrollHeight + border;
+  chatInput.style.height = Math.min(contentHeight, CHAT_INPUT_MAX_HEIGHT) + "px";
+  // скрол вмикаємо лише тоді, коли текст справді довший за ліміт у 5 рядків —
+  // до цього моменту висота точно підігнана під контент, скролити нічого
+  chatInput.style.overflowY = contentHeight > CHAT_INPUT_MAX_HEIGHT ? "auto" : "hidden";
+  // якщо каретка в кінці тексту (звичайний випадок — людина дописує знизу) —
+  // докрутити до самого низу разом із padding: браузерне відновлення scrollTop
+  // після перерахунку висоти інакше лишає останній рядок притиснутим до краю
+  if (chatInput.selectionEnd >= chatInput.value.length) {
+    chatInput.scrollTop = chatInput.scrollHeight;
+  }
+  // #chat-log — flex: 1, тож коли textarea росте, лог стискається і його
+  // scrollTop (незмінний) лишає останні повідомлення "під" полем вводу —
+  // виглядає, ніби лог сам самовільно проскролив угору. Підколюємо назад до
+  // низу ЛИШЕ якщо він і був унизу (див. logAtBottom вище) — щоб не заважати
+  // читанню історії при прокрутці вгору
+  if (logAtBottom) chatLog.scrollTop = chatLog.scrollHeight;
+}
+
 const savedDraft = localStorage.getItem(CHAT_DRAFT_KEY);
 if (savedDraft) chatInput.value = savedDraft;
-chatInput.addEventListener("input", saveChatDraft);
+autoResizeChatInput();
+chatInput.addEventListener("input", () => {
+  saveChatDraft();
+  autoResizeChatInput();
+});
+
+// На десктопі (є фізична клавіатура) Enter надсилає, Shift+Enter — новий
+// рядок. На сенсорних пристроях (телефон/планшет) Shift+Enter недоступний,
+// тож там Enter лишаємо як звичайний перенос рядка — надсилання лише кнопкою
+// ➤, інакше не було б жодного способу зробити багаторядкове повідомлення.
+// (pointer: coarse) = основний вказівник сенсорний.
+const enterSubmits =
+  !(window.matchMedia && window.matchMedia("(pointer: coarse)").matches);
+chatInput.addEventListener("keydown", (e) => {
+  if (enterSubmits && e.key === "Enter" && !e.shiftKey) {
+    e.preventDefault();
+    chatInput.form.requestSubmit();
+  }
+});
 
 // поки триває стрімінг відповіді — кнопка відправлення показує спінер
 // замість "➤", щоб було видно, чи ще думає, чи вже готово
@@ -98,6 +156,10 @@ async function openChat() {
   lockBodyScroll();
   syncOverlaysToViewport();
   forceReflow(chatOverlay);
+  // при завантаженні сторінки chat-overlay ще прихований (display: none) —
+  // scrollHeight тоді завжди 0, тож розтягування чернетки в кілька рядків не
+  // спрацьовує "наосліп"; тут textarea вже видима, можна порахувати правильно
+  autoResizeChatInput();
   chatInput.focus();
   // якщо саме зараз у цій вкладці стрімиться відповідь — не перебудовувати
   // чат під живим бабблом; інакше завжди підтягуємо свіжий стан з сервера:
@@ -127,10 +189,20 @@ async function openChat() {
 async function sendChat(e) {
   e.preventDefault();
   const text = chatInput.value.trim();
-  if (!text || chatBusy) return;
+  if (!text || chatBusy) {
+    // самі пробіли (після trim нічого не лишилось) — чистимо поле, як у
+    // звичайних чатах, щоб не тягнути беззмістовний whitespace як чернетку
+    if (!text && !chatBusy) {
+      chatInput.value = "";
+      autoResizeChatInput();
+      localStorage.removeItem(CHAT_DRAFT_KEY);
+    }
+    return;
+  }
   chatBusy = true;
   setChatSending(true);
   chatInput.value = "";
+  autoResizeChatInput();
   localStorage.removeItem(CHAT_DRAFT_KEY);   // надіслано -> це вже не чернетка
   chatBubble("user", text);
   const bubble = chatBubble("assistant", "…");

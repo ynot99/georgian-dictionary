@@ -233,8 +233,14 @@ form.add button {
   font-family: inherit; font-size: .82rem; font-weight: 600; color: var(--text);
 }
 .tc-empty { text-align: center; color: var(--muted); font-size: .85rem; padding: 8px; }
-#chat-form { display: flex; gap: 8px; padding-top: 8px; }
-#chat-input { flex: 1; min-width: 0; }
+#chat-form { display: flex; gap: 8px; padding-top: 8px; align-items: flex-end; }
+#chat-input {
+  flex: 1; min-width: 0; resize: none; max-height: 140px; overflow-y: hidden;
+  /* докручуючи каретку у видиму зону, браузер ігнорує padding (текст прилипає
+     до краю, відступ лишається "за кадром") — scroll-padding каже лишати цей
+     запас; значення = вертикальному padding текстарії */
+  scroll-padding-block: 12px;
+}
 #chat-send {
   padding: 12px 16px; font-size: 1.1rem; font-weight: 600; border: none;
   border-radius: 8px; cursor: pointer; background: var(--accent); color: #fff;
