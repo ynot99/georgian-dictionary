@@ -9,6 +9,20 @@ const chatInput = document.getElementById("chat-input");
 const chatSend = document.getElementById("chat-send");
 let chatBusy = false;
 
+// чернетка недописаного повідомлення переживає закриття вкладки/застосунку
+// (не лише перехід між екранами в межах тієї ж сесії) — щоб написане й
+// незаслане нікуди не зникало, якщо повернувся до чату значно пізніше
+const CHAT_DRAFT_KEY = "chatDraft";
+
+function saveChatDraft() {
+  if (chatInput.value) localStorage.setItem(CHAT_DRAFT_KEY, chatInput.value);
+  else localStorage.removeItem(CHAT_DRAFT_KEY);
+}
+
+const savedDraft = localStorage.getItem(CHAT_DRAFT_KEY);
+if (savedDraft) chatInput.value = savedDraft;
+chatInput.addEventListener("input", saveChatDraft);
+
 // поки триває стрімінг відповіді — кнопка відправлення показує спінер
 // замість "➤", щоб було видно, чи ще думає, чи вже готово
 function setChatSending(sending) {
@@ -110,6 +124,7 @@ async function sendChat(e) {
   chatBusy = true;
   setChatSending(true);
   chatInput.value = "";
+  localStorage.removeItem(CHAT_DRAFT_KEY);   // надіслано -> це вже не чернетка
   chatBubble("user", text);
   const bubble = chatBubble("assistant", "…");
   bubble.classList.add("pending");
