@@ -58,18 +58,25 @@ function parseNoteRefs(text) {
   return parts;
 }
 
-function renderBubbleContent(bubble, text) {
-  bubble.replaceChildren();
+// спільне з notes.js: там нотатка теж може містити [[note:ID|Назва]] (напр.
+// репетитор послався на іншу нотатку з тексту самої нотатки) — те саме
+// клікабельне посилання, що й у бульбашці чату, а не голий текст розмітки
+function appendNoteRefs(container, text) {
   for (const part of parseNoteRefs(text)) {
     if (part.type === "text") {
-      bubble.append(document.createTextNode(part.value));
+      container.append(document.createTextNode(part.value));
     } else {
       const btn = el("button", "note-link", `📖 ${part.title}`);
       btn.type = "button";
       btn.onclick = () => openNotes(part.id);
-      bubble.append(btn);
+      container.append(btn);
     }
   }
+}
+
+function renderBubbleContent(bubble, text) {
+  bubble.replaceChildren();
+  appendNoteRefs(bubble, text);
 }
 
 function chatBubble(role, text) {

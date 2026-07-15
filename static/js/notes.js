@@ -41,7 +41,9 @@ function renderNotes(highlightId) {
     delBtn.title = "Видалити нотатку";
     delBtn.onclick = () => deleteNote(n.id);
     titleRow.append(delBtn);
-    card.append(titleRow, el("div", "note-content", n.content));
+    const contentEl = el("div", "note-content");
+    appendNoteRefs(contentEl, n.content);
+    card.append(titleRow, contentEl);
     notesLog.append(card);
     if (n.id === highlightId) toScroll = card;
   }
@@ -126,7 +128,8 @@ function presentNoteCard() {
   }
   nrProgress.textContent = `Залишилось: ${noteQueue.length + 1}`;
   nrTitle.textContent = currentNote.title;
-  nrContent.textContent = currentNote.content;
+  nrContent.replaceChildren();
+  appendNoteRefs(nrContent, currentNote.content);
 }
 
 function nextNoteCard() {
