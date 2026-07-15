@@ -191,6 +191,7 @@ const TOOL_LOOKUP_KEY = {
   edit_word: "georgian",
   retag_word: "georgian",
   get_grammar_note: "id",
+  edit_grammar_note: "id",
 };
 
 function toolCallDetailLines(call) {

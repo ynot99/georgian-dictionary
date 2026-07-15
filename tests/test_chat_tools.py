@@ -134,6 +134,47 @@ row = conn.execute(
 assert row["translation"] == "інший переклад", "неоднозначний збіг не мав нічого змінювати"
 print("13. неоднозначний збіг -> edit_word ok: False, нічого не змінено")
 
+# --- edit_grammar_note: виправляє поля наявної нотатки (title/content, за бажанням) ---
+
+notes_before = conn.execute("SELECT COUNT(*) FROM grammar_notes").fetchone()[0]
+note_id = dict_chat.execute_save_grammar_note(conn, {
+    "title": "test-tool-note", "content": "початковий зміст",
+})["id"]
+
+result = dict_chat.execute_edit_grammar_note(conn, {"id": note_id, "content": "виправлений зміст"})
+assert result["ok"] is True and result["content"] == "виправлений зміст", result
+row = conn.execute("SELECT title, content FROM grammar_notes WHERE id = ?", (note_id,)).fetchone()
+assert row["title"] == "test-tool-note", "title не передано -> не мало змінитись"
+assert row["content"] == "виправлений зміст"
+print("18. edit_grammar_note виправляє лише передане поле (content), title не чіпається")
+
+result = dict_chat.execute_edit_grammar_note(conn, {"id": note_id, "title": "нова назва"})
+assert result["ok"] is True
+row = conn.execute("SELECT title FROM grammar_notes WHERE id = ?", (note_id,)).fetchone()
+assert row["title"] == "нова назва"
+print("19. edit_grammar_note виправляє title окремо від content")
+
+# жодного поля для зміни -> ok: False, нічого не пишеться
+result = dict_chat.execute_edit_grammar_note(conn, {"id": note_id})
+assert result == {"ok": False, "error": "потрібне хоча б одне з: title, content"}, result
+print("20. edit_grammar_note без жодного поля для зміни -> ok: False")
+
+# неіснуюча нотатка -> ok: False
+result = dict_chat.execute_edit_grammar_note(conn, {"id": 999999, "title": "щось"})
+assert result == {"ok": False, "error": "нотатку не знайдено"}, result
+print("21. edit_grammar_note: неіснуюча нотатка -> ok: False")
+
+# невалідний id -> ok: False
+result = dict_chat.execute_edit_grammar_note(conn, {"id": "не число", "title": "щось"})
+assert result == {"ok": False, "error": "невалідний id"}, result
+print("22. edit_grammar_note: невалідний id -> ok: False")
+
+conn.execute("DELETE FROM grammar_notes WHERE id = ?", (note_id,))
+conn.commit()
+notes_after = conn.execute("SELECT COUNT(*) FROM grammar_notes").fetchone()[0]
+assert notes_after == notes_before, (notes_before, notes_after)
+print(f"23. прибирання: знову {notes_before} нотаток")
+
 # --- журнал викликів для дзвіночка (🔔) в чаті ---
 
 calls_before = conn.execute("SELECT COUNT(*) FROM tool_calls").fetchone()[0]
@@ -148,7 +189,7 @@ row = conn.execute(
 assert row["tool_name"] == "add_word"
 assert row["summary"] == "add_word — test-tool-word", row["summary"]
 assert row["ok"] == 1
-print("14. _log_tool_call записує підсумок 'тулза — слово' і ok=1 для успіху")
+print("24. _log_tool_call записує підсумок 'тулза — слово' і ok=1 для успіху")
 
 dict_chat._log_tool_call(
     conn, "edit_word",
@@ -159,11 +200,11 @@ row = conn.execute(
     "SELECT tool_name, summary, ok FROM tool_calls ORDER BY id DESC LIMIT 1"
 ).fetchone()
 assert row["ok"] == 0, "невдалий виклик має логуватись з ok=0"
-print("15. _log_tool_call позначає невдалий виклик як ok=0")
+print("25. _log_tool_call позначає невдалий виклик як ok=0")
 
 calls_after = conn.execute("SELECT COUNT(*) FROM tool_calls").fetchone()[0]
 assert calls_after == calls_before + 2, (calls_before, calls_after)
-print(f"16. кількість записів у tool_calls зросла на 2: {calls_before} -> {calls_after}")
+print(f"26. кількість записів у tool_calls зросла на 2: {calls_before} -> {calls_after}")
 
 # прибирання
 conn.execute("DELETE FROM words WHERE georgian = ? OR uuid = ?", ("test-tool-word", "test-tool-dup"))
@@ -171,7 +212,7 @@ conn.execute("DELETE FROM tool_calls WHERE summary LIKE '%test-tool-word%'")
 conn.commit()
 final = conn.execute("SELECT COUNT(*) FROM words").fetchone()[0]
 assert final == before, (before, final)
-print(f"17. прибирання: знову {before} слів, {calls_before} записів у tool_calls")
+print(f"27. прибирання: знову {before} слів, {calls_before} записів у tool_calls")
 
 conn.close()
 print("\nВСЕ OK (жодного звернення до Claude API)")
