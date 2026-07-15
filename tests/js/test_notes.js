@@ -36,4 +36,23 @@ assert.deepStrictEqual(parts, [{ type: "text", value: "звичайні [дуж�
 assert.deepStrictEqual(parseNoteRefs(""), []);
 
 console.log("ВСЕ OK: парсер посилань на нотатки [[note:ID|Назва]] коректний");
+
+// ---------- фільтр "лише важливі" (⭐) ----------
+
+const notes = [
+  { id: 1, title: "А", starred: 1 },
+  { id: 2, title: "Б", starred: 0 },
+  { id: 3, title: "В", starred: 1 },
+];
+
+// фільтр вимкнено -> усі нотатки як є
+assert.deepStrictEqual(visibleNotes(notes, false), notes);
+
+// фільтр увімкнено -> лише starred
+assert.deepStrictEqual(visibleNotes(notes, true), [notes[0], notes[2]]);
+
+// жодної важливої -> порожній список, а не всі
+assert.deepStrictEqual(visibleNotes([{ id: 1, title: "А", starred: 0 }], true), []);
+
+console.log("ВСЕ OK: visibleNotes() фільтрує лише за starred, не чіпає порядок/дані");
 `);

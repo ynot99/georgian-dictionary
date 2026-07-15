@@ -6,7 +6,25 @@ const notesOverlay = document.getElementById("notes-overlay");
 registerKeyboardAwareOverlay(notesOverlay);
 const notesLog = document.getElementById("notes-log");
 const notesReviewBtn = document.getElementById("notes-review-btn");
+const notesFilterBtn = document.getElementById("notes-filter-btn");
 let notesCache = [];
+// збережено в localStorage — на відміну від expandedToolCalls у чаті, це не
+// одноразовий стан сесії, а стійке налаштування (щоб не перемикати щоразу)
+const NOTES_FILTER_KEY = "notesStarredOnly";
+let notesStarredOnly = localStorage.getItem(NOTES_FILTER_KEY) === "1";
+
+// винесено окремо (без DOM) заради тестованості: які нотатки показувати,
+// якщо ввімкнено фільтр "лише важливі"
+function visibleNotes(notes, starredOnly) {
+  return starredOnly ? notes.filter((n) => n.starred) : notes;
+}
+
+function applyNotesFilterButton() {
+  notesFilterBtn.textContent = notesStarredOnly ? "★" : "☆";
+  notesFilterBtn.title = notesStarredOnly ? "Показати всі нотатки" : "Показати лише важливі";
+  notesFilterBtn.classList.toggle("active", notesStarredOnly);
+}
+applyNotesFilterButton();   // одразу відобразити збережений стан, ще до першого відкриття нотаток
 
 async function openNotes(highlightId) {
   notesOverlay.hidden = false;
@@ -25,22 +43,37 @@ async function openNotes(highlightId) {
   }
 }
 
+function toggleNotesFilter() {
+  notesStarredOnly = !notesStarredOnly;
+  localStorage.setItem(NOTES_FILTER_KEY, notesStarredOnly ? "1" : "0");
+  applyNotesFilterButton();
+  renderNotes();
+}
+
 function renderNotes(highlightId) {
   notesLog.replaceChildren();
-  if (!notesCache.length) {
-    notesLog.append(el("p", "ch-note",
-      "Нотаток поки немає — репетитор створить їх у чаті, коли пояснюватиме граматику."));
+  const shown = visibleNotes(notesCache, notesStarredOnly);
+  if (!shown.length) {
+    notesLog.append(el("p", "ch-note", notesCache.length
+      ? "Немає важливих нотаток — познач ⭐ потрібні, або вимкни фільтр."
+      : "Нотаток поки немає — репетитор створить їх у чаті, коли пояснюватиме граматику."));
     return;
   }
   let toScroll = null;
-  for (const n of notesCache) {
+  for (const n of shown) {
     const card = el("div", "note-card" + (n.id === highlightId ? " highlight" : ""));
     const titleRow = el("div", "note-title");
     titleRow.append(el("span", null, n.title));
+    const actions = el("div", "note-actions");
+    const starBtn = el("button", "note-star" + (n.starred ? " active" : ""), n.starred ? "★" : "☆");
+    starBtn.title = n.starred ? "Прибрати з важливих" : "Позначити як важливу";
+    starBtn.onclick = () => toggleNoteStar(n.id);
+    actions.append(starBtn);
     const delBtn = el("button", "note-del", "🗑");
     delBtn.title = "Видалити нотатку";
     delBtn.onclick = () => deleteNote(n.id);
-    titleRow.append(delBtn);
+    actions.append(delBtn);
+    titleRow.append(actions);
     const contentEl = el("div", "note-content");
     appendNoteRefs(contentEl, n.content);
     card.append(titleRow, contentEl);
@@ -48,6 +81,19 @@ function renderNotes(highlightId) {
     if (n.id === highlightId) toScroll = card;
   }
   if (toScroll) toScroll.scrollIntoView({ block: "center" });
+}
+
+async function toggleNoteStar(id) {
+  try {
+    const res = await fetchWithTimeout(`/api/notes/${id}/star`, { method: "POST" });
+    if (!res.ok) throw new Error();
+    const data = await res.json();
+    const note = notesCache.find((n) => n.id === id);
+    if (note) note.starred = data.starred;
+    renderNotes();
+  } catch {
+    alert("Немає з'єднання з сервером.");
+  }
 }
 
 async function deleteNote(id) {

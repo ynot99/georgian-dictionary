@@ -83,6 +83,10 @@ def init_db():
                 created_at TEXT NOT NULL
             )
         """)
+        # міграція старої бази без позначки "важлива нотатка"
+        note_cols = [row[1] for row in db.execute("PRAGMA table_info(grammar_notes)")]
+        if "starred" not in note_cols:
+            db.execute("ALTER TABLE grammar_notes ADD COLUMN starred INTEGER NOT NULL DEFAULT 0")
         # прогрес повторення нотаток (SRS, ті самі інтервали, що й слова);
         # лише сервер — на відміну від words/reviews офлайн-копії тут немає
         db.execute("""

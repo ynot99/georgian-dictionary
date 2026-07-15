@@ -533,12 +533,25 @@ chat_bp = Blueprint("chat", __name__)
 def api_notes_list():
     db = get_db()
     rows = db.execute(
-        "SELECT g.id, g.title, g.content, g.created_at, "
+        "SELECT g.id, g.title, g.content, g.created_at, g.starred, "
         "COALESCE(nr.level, 0) AS level, nr.due_at AS due_at "
         "FROM grammar_notes g LEFT JOIN note_reviews nr ON nr.note_id = g.id "
         "ORDER BY g.id DESC"
     ).fetchall()
     return {"notes": [dict(r) for r in rows]}
+
+
+@chat_bp.route("/api/notes/<int:note_id>/star", methods=["POST"])
+def api_notes_star(note_id):
+    """Перемикає позначку "важлива" — без тіла запиту, просто toggle поточного стану."""
+    db = get_db()
+    note = db.execute("SELECT starred FROM grammar_notes WHERE id = ?", (note_id,)).fetchone()
+    if note is None:
+        return {"error": "нотатку не знайдено"}, 404
+    starred = 0 if note["starred"] else 1
+    db.execute("UPDATE grammar_notes SET starred = ? WHERE id = ?", (starred, note_id))
+    db.commit()
+    return {"ok": True, "starred": bool(starred)}
 
 
 @chat_bp.route("/api/notes/<int:note_id>", methods=["DELETE"])

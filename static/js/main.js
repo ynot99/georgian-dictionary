@@ -140,6 +140,7 @@ document.getElementById("chat-form").addEventListener("submit", sendChat);
 document.getElementById("notes-btn").addEventListener("click", () => openNotes());
 document.getElementById("notes-close").addEventListener("click", closeNotes);
 notesReviewBtn.addEventListener("click", toggleNoteReview);
+notesFilterBtn.addEventListener("click", toggleNotesFilter);
 nrReveal.addEventListener("click", revealNote);
 nrWrong.addEventListener("click", () => gradeNote(false));
 nrRight.addEventListener("click", () => gradeNote(true));

@@ -59,13 +59,13 @@ base_count = len(base["notes"])
 print(f"7. базовий стан: {base_count} нотаток")
 
 conn = sqlite3.connect(DB_PATH)
-conn.execute(
+cur = conn.execute(
     "INSERT INTO grammar_notes (title, content, created_at) VALUES (?, ?, ?)",
     ("test-note-http", "Текст для http-тесту", "2026-07-11 10:00:00"),
 )
 conn.commit()
-new_id = conn.execute(
-    "SELECT id FROM grammar_notes WHERE title = 'test-note-http'").fetchone()[0]
+new_id = cur.lastrowid   # напряму, а не за title -> не збіжиться з осиротілим
+                         # рядком того самого title, якщо минулий запуск не встиг прибрати
 conn.close()
 
 _, data = req("/api/notes")
@@ -96,6 +96,29 @@ status, _ = req("/api/notes/999999/review", "POST", {"correct": True})
 assert status == 404
 print("13. повторення неіснуючої нотатки -> 404")
 
+# --- e2e: позначка "важлива" (/api/notes/<id>/star) ---
+
+assert note["starred"] == 0, note
+print("14. нова нотатка починається без позначки ⭐ (starred: 0)")
+
+status, data = req(f"/api/notes/{new_id}/star", "POST")
+assert status == 200 and data == {"ok": True, "starred": True}, data
+_, data = req("/api/notes")
+note = next(n for n in data["notes"] if n["id"] == new_id)
+assert note["starred"] == 1, note
+print("15. POST /api/notes/<id>/star вмикає позначку (toggle)")
+
+status, data = req(f"/api/notes/{new_id}/star", "POST")
+assert status == 200 and data == {"ok": True, "starred": False}, data
+_, data = req("/api/notes")
+note = next(n for n in data["notes"] if n["id"] == new_id)
+assert note["starred"] == 0, note
+print("16. повторний виклик вимикає позначку назад")
+
+status, _ = req("/api/notes/999999/star", "POST")
+assert status == 404
+print("17. star для неіснуючої нотатки -> 404")
+
 status, _ = req(f"/api/notes/{new_id}", "DELETE")
 assert status == 200
 conn = sqlite3.connect(DB_PATH)
@@ -106,6 +129,6 @@ conn.close()
 assert leftover is None, "видалення нотатки має прибрати і її прогрес повторення"
 _, data = req("/api/notes")
 assert len(data["notes"]) == base_count, len(data["notes"])
-print(f"14. DELETE /api/notes/<id> прибирає нотатку і її прогрес; знову {base_count}")
+print(f"18. DELETE /api/notes/<id> прибирає нотатку і її прогрес; знову {base_count}")
 
 print("\nВСЕ OK (жодного звернення до Claude API)")
