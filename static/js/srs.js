@@ -42,6 +42,17 @@ function shuffle(arr) {
   return arr;
 }
 
+// всі картки активної області, незалежно від розкладу — саме в цьому суть
+// тренування за тегом: пройти категорію зараз, а не чекати, поки слова стануть
+// due (ліміту NEW_PER_SESSION теж немає — сесію ти почав свідомо й сам)
+function collectPractice() {
+  const cards = [];
+  for (const w of wordsInScope()) {
+    for (const dir of DIRECTIONS) cards.push({ w, dir });
+  }
+  return shuffle(cards);
+}
+
 // картки до повторення: прострочені + нові (ліміт на сесію);
 // активний тег-фільтр обмежує і повторення — можна тренувати тему окремо
 function collectDue() {
@@ -163,6 +174,15 @@ let sessionWrongKeys = new Set();
 // справжнє повторення через реальний часовий розрив). Провал і тут лишається
 // провалом — це нова ознака труднощів, а не менш вартий сигнал.
 let inRetryRound = false;
+// тренування за тегом ("🎯 Тренувати") — практика ПОЗА розкладом, тож не пише
+// в SRS нічого: ні level/due_at, ні lapses, ні журнал для серії днів. Причина
+// та сама, що й вище: слово, яке ще не спливло, згадується "по свіжій пам'яті",
+// і зарахувати це як справжнє повторення означало б відсунути наступний показ
+// далі, ніж заслужено. На відміну від inRetryRound, тут і провал не карається:
+// там картка була справді due і ти її справді завалив (валідний сигнал), а сюди
+// слова потрапляють гуртом незалежно від розкладу — і спроба потренувати
+// категорію не повинна мати шансу зіпсувати реальний прогрес.
+let practiceMode = false;
 // "type" — друкуєш відповідь, "flip" — класичний показ; вибір запам'ятовується
 let reviewMode = localStorage.getItem("reviewMode") || "type";
 // строгий режим: вимикає прощення одруківок у checkAnswer
@@ -197,18 +217,28 @@ function setHint(text) {
   rvHint.textContent = text;
 }
 
-function startReview() {
-  const { due, fresh } = collectDue();
-  queue = [...shuffle(due), ...shuffle(fresh).slice(0, NEW_PER_SESSION)];
+function openSession(cards, practice) {
+  queue = cards;
   doneCount = 0;
   sessionWrong = [];
   sessionWrongKeys = new Set();
   inRetryRound = false;
+  practiceMode = practice;
   overlay.hidden = false;
   lockBodyScroll();
   syncOverlaysToViewport();
   forceReflow(overlay);   // щоб автофокус нижче бачив уже готову геометрію вікна
   nextCard();
+}
+
+function startReview() {
+  const { due, fresh } = collectDue();
+  openSession([...shuffle(due), ...shuffle(fresh).slice(0, NEW_PER_SESSION)], false);
+}
+
+// тренування активного тега: та сама механіка карток, але без запису в SRS
+function startPractice() {
+  openSession(collectPractice(), true);
 }
 
 // новий міні-раунд лише з карток, провалених у щойно завершеній сесії —
@@ -246,9 +276,11 @@ function presentCard() {
   lastVerdict = null;
   if (finished) {
     rvReveal.hidden = rvType.hidden = true;
-    rvDone.textContent = doneCount
-      ? `Готово! Повторено карток: ${doneCount} 🎉`
-      : "Наразі немає карток до повторення. Приходь пізніше!";
+    rvDone.textContent = practiceMode
+      ? `Тренування завершено! Пройдено карток: ${doneCount} 🎯 SRS не змінився.`
+      : doneCount
+        ? `Готово! Повторено карток: ${doneCount} 🎉`
+        : "Наразі немає карток до повторення. Приходь пізніше!";
     rvProgress.textContent = "";
     rvRetryWrong.hidden = sessionWrong.length === 0;
     setHint(rvRetryWrong.hidden
@@ -257,7 +289,8 @@ function presentCard() {
     return;
   }
   const { w, dir } = currentCard;
-  rvProgress.textContent = `Залишилось: ${queue.length + 1}`;
+  rvProgress.textContent = (practiceMode ? "🎯 Тренування (без SRS) · " : "")
+    + `Залишилось: ${queue.length + 1}`;
   rvDir.textContent = dir === "ka2uk" ? "ქართული → переклад" : "переклад → ქართული";
   rvFront.textContent = dir === "ka2uk" ? w.georgian : w.translation;
   rvBack.textContent = dir === "ka2uk" ? w.translation : w.georgian;
@@ -332,31 +365,34 @@ function checkTyped() {
   reveal();
 }
 
+// чи йде ця відповідь у SRS. Тренування за тегом не пише нічого взагалі;
+// міні-раунд "ще раз провалені" не зараховує лише ПРАВИЛЬНУ відповідь
+// (провал там — валідний сигнал: картка була справді due і ти її завалив)
+function writesSrs(correct) {
+  return !practiceMode && !(inRetryRound && correct);
+}
+
 function grade(correct) {
   const { w, dir } = currentCard;
   const key = w.uuid + "|" + dir;
 
-  if (inRetryRound && correct) {
-    // практика, не залік: не рухаємо level/due_at/lapses далі
-    doneCount++;
-    nextCard();
-    return;
+  if (writesSrs(correct)) {
+    const prevLevel = reviews[key] ? reviews[key].level : 0;
+    const prevLapses = reviews[key] ? reviews[key].lapses || 0 : 0;
+    const level = correct ? Math.min(prevLevel + 1, INTERVALS.length) : 0;
+    reviews[key] = {
+      word_uuid: w.uuid,
+      direction: dir,
+      level,
+      due_at: correct ? dueDateStr(INTERVALS[level - 1]) : nowStr(),
+      reviewed_at: nowStr(),
+      lapses: correct ? prevLapses : prevLapses + 1,
+      synced: false,
+    };
+    saveReviews();
+    logReview();
   }
 
-  const prevLevel = reviews[key] ? reviews[key].level : 0;
-  const prevLapses = reviews[key] ? reviews[key].lapses || 0 : 0;
-  const level = correct ? Math.min(prevLevel + 1, INTERVALS.length) : 0;
-  reviews[key] = {
-    word_uuid: w.uuid,
-    direction: dir,
-    level,
-    due_at: correct ? dueDateStr(INTERVALS[level - 1]) : nowStr(),
-    reviewed_at: nowStr(),
-    lapses: correct ? prevLapses : prevLapses + 1,
-    synced: false,
-  };
-  saveReviews();
-  logReview();
   if (correct) doneCount++;
   else {
     queue.push(currentCard);   // забуту картку — в кінець цієї ж сесії

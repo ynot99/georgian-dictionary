@@ -285,6 +285,17 @@ function render() {
   reviewBtn.textContent = total ? `${label} (${total})` : label;
   reviewBtn.disabled = !total;
 
+  // тренування — лише для конкретної категорії: пройти всю тему зараз має сенс,
+  // а "тренувати весь словник" (activeTag === null) дублювало б звичайне
+  // повторення, тільки без користі для розкладу
+  const practiceBtn = document.getElementById("practice-btn");
+  const practiceCards = activeTag ? wordsInScope().length * DIRECTIONS.length : 0;
+  practiceBtn.hidden = !practiceCards;
+  if (practiceCards) {
+    practiceBtn.textContent = `🎯 Тренувати: ${scopeLabel} (${practiceCards})`;
+    practiceBtn.title = "Пройти всю категорію зараз — не впливає на SRS-розклад";
+  }
+
   const nextEl = document.getElementById("review-next");
   const next = !total && nextDueAt();
   nextEl.hidden = !next;

@@ -158,4 +158,78 @@ assert.strictEqual(words.length, 1);
 assert.strictEqual(words[0].uuid, "w2");
 
 console.log("ВСЕ OK: клієнтська SRS-логіка коректна");
+
+// ---------- тренування за тегом (🎯): практика без запису в SRS ----------
+
+words = [
+  { uuid: "p1", georgian: "ბუ", translation: "сова", example: "", tags: "тварини", created_at: "2026-07-01 10:00:00", synced: true },
+  { uuid: "p2", georgian: "ხე", translation: "дерево", example: "", tags: "тварини", created_at: "2026-07-01 10:00:00", synced: true },
+  { uuid: "p3", georgian: "პური", translation: "хліб", example: "", tags: "їжа", created_at: "2026-07-01 10:00:00", synced: true },
+];
+reviews = {};
+reviewLog = {};
+activeTag = "тварини";
+
+// у тренування йдуть УСІ картки тега (2 слова x 2 напрямки), незалежно від
+// розкладу — на відміну від collectDue(), яке дало б лише прострочені/нові
+reviews["p1|ka2uk"] = { word_uuid: "p1", direction: "ka2uk", level: 3, due_at: "2099-01-01 00:00:00", reviewed_at: "2026-07-01 00:00:00", lapses: 1, synced: true };
+let practice = collectPractice();
+assert.strictEqual(practice.length, 4, "усі картки тега: " + practice.length);
+assert.ok(practice.every((c) => c.w.uuid !== "p3"), "слово з іншого тега не потрапляє");
+
+// правильна відповідь у тренуванні НЕ рухає level/due_at і не пише в журнал
+startPractice();
+queue = [{ w: words[0], dir: "ka2uk" }];
+currentCard = null;
+nextCard();
+grade(true);
+assert.strictEqual(reviews["p1|ka2uk"].level, 3, "рівень не має змінитись");
+assert.strictEqual(reviews["p1|ka2uk"].due_at, "2099-01-01 00:00:00", "due_at не має зрушити");
+assert.deepStrictEqual(reviewLog, {}, "тренування не рахується в серію днів");
+
+// провал у тренуванні теж нічого не псує: ні level, ні lapses
+queue = [{ w: words[0], dir: "ka2uk" }];
+currentCard = null;
+nextCard();
+grade(false);
+assert.strictEqual(reviews["p1|ka2uk"].level, 3, "провал у тренуванні не скидає рівень");
+assert.strictEqual(reviews["p1|ka2uk"].lapses, 1, "провал у тренуванні не додає lapses");
+assert.deepStrictEqual(reviewLog, {}, "провал у тренуванні теж не пише в журнал");
+
+// ...але картка все одно повертається в чергу і йде в "ще раз провалені" —
+// це стан сесії, він до SRS не має стосунку
+assert.strictEqual(sessionWrong.length, 1, "провалена картка потрапляє в sessionWrong");
+
+// нове слово, якого SRS ще не бачив, після тренування лишається невідомим —
+// тренування не має "створювати" прогрес із нічого
+queue = [{ w: words[1], dir: "uk2ka" }];
+currentCard = null;
+nextCard();
+grade(true);
+assert.ok(!("p2|uk2ka" in reviews), "тренування не створює запис прогресу для нового слова");
+
+// "слово, з яким сплутав" працює і в тренуванні: це стан сесії (sessionWrong),
+// а не запис у SRS, тож practiceMode його не блокує
+startPractice();
+queue = [{ w: words[0], dir: "ka2uk" }];   // картка ბუ -> "сова"
+currentCard = null;
+nextCard();
+assert.strictEqual(sessionWrong.length, 0, "старт сесії чистить список провалених");
+rvInput.value = "хліб";                    // це правильна відповідь для p3 (პური)
+checkTyped();
+assert.ok(sessionWrong.some((c) => c.w.uuid === "p3"),
+  "сплутане слово потрапляє в 'ще раз провалені' і в тренуванні");
+assert.ok(!("p3|ka2uk" in reviews),
+  "...але прогрес сплутаного слова в SRS не створюється");
+
+// звичайне повторення після тренування знову пише в SRS (practiceMode скинуто)
+startReview();
+queue = [{ w: words[0], dir: "ka2uk" }];
+currentCard = null;
+nextCard();
+grade(true);
+assert.strictEqual(reviews["p1|ka2uk"].level, 4, "звичайне повторення знову рухає рівень");
+assert.strictEqual(reviewLog[localDateKey()], 1, "звичайне повторення знову пише в журнал");
+
+console.log("ВСЕ OK: тренування за тегом не зачіпає SRS");
 `);
