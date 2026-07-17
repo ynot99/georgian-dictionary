@@ -100,11 +100,20 @@
     <div class="ch-top">
       <span class="ch-title">📖 Нотатки з граматики</span>
       <span class="rv-top-btns">
+        <button type="button" id="notes-add-btn" title="Нова нотатка">➕</button>
         <button type="button" id="notes-filter-btn" title="Показати лише важливі">☆</button>
         <button type="button" id="notes-review-btn" title="Повторити нотатки">🎓</button>
         <button type="button" id="notes-close" title="Закрити">✕</button>
       </span>
     </div>
+    <form class="note-form" id="note-form" hidden>
+      <input id="nf-title" placeholder="Назва правила" autocomplete="off" lang="uk">
+      <textarea id="nf-content" rows="4" placeholder="Пояснення з прикладами…" lang="uk"></textarea>
+      <div class="note-form-btns">
+        <button type="submit" id="nf-save">Зберегти</button>
+        <button type="button" id="nf-cancel">Скасувати</button>
+      </div>
+    </form>
     <div id="notes-log"></div>
     <div id="notes-review" hidden>
       <p class="rv-dir" id="nr-progress"></p>

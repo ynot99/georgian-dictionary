@@ -13,15 +13,21 @@ assert.match(ics, /DTSTART:\\d{8}T200500/, "час у DTSTART відповіда
 assert.match(ics, /UID:.+@dictionary-app/, "UID згенерований");
 assert.ok(ics.endsWith("END:VCALENDAR\\r\\n"), "має закінчуватись END:VCALENDAR");
 
-// якщо обраний час сьогодні вже минув — подія переноситься на завтра,
-// інакше перший сигнал прийшов би одразу в минуле й ніколи не спрацював би
+// DTSTART = перше МАЙБУТНЄ спрацювання обраного часу: якщо час сьогодні вже
+// минув — переноситься на завтра, інакше лишається сьогодні (перший сигнал не
+// має прийти одразу в минуле). Беремо час на годину раніше поточного; чи це
+// минуле сьогодні, чи вже майбутнє (напр. біля півночі година−1 = 23 год, а це
+// ще попереду) — очікувану дату рахуємо тим самим правилом, що й код, а не
+// припускаємо "завжди завтра" (це й ламало тест одразу після опівночі).
 const now = new Date();
-const pastHour = (now.getHours() - 1 + 24) % 24;
-const icsPast = buildReminderIcs(pastHour, 0);
+const testHour = (now.getHours() + 23) % 24;   // на годину раніше, з переходом через північ
+const testMin = now.getMinutes();
+const icsPast = buildReminderIcs(testHour, testMin);
 const m = /DTSTART:(\\d{8})T/.exec(icsPast);
-const tomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
-const expected = \`\${tomorrow.getFullYear()}\${String(tomorrow.getMonth() + 1).padStart(2, "0")}\${String(tomorrow.getDate()).padStart(2, "0")}\`;
-assert.strictEqual(m[1], expected, "час, що вже минув сьогодні -> подія переноситься на завтра");
+const occ = new Date(now.getFullYear(), now.getMonth(), now.getDate(), testHour, testMin, 0);
+if (occ < now) occ.setDate(occ.getDate() + 1);
+const expected = \`\${occ.getFullYear()}\${String(occ.getMonth() + 1).padStart(2, "0")}\${String(occ.getDate()).padStart(2, "0")}\`;
+assert.strictEqual(m[1], expected, "DTSTART = перше майбутнє спрацювання обраного часу");
 
 console.log("ВСЕ OK: генерація .ics для щоденного нагадування коректна");
 `);

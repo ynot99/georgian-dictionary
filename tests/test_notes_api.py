@@ -131,4 +131,42 @@ _, data = req("/api/notes")
 assert len(data["notes"]) == base_count, len(data["notes"])
 print(f"18. DELETE /api/notes/<id> прибирає нотатку і її прогрес; знову {base_count}")
 
+# --- e2e: ручне створення (POST) і редагування (PATCH) з UI ---
+
+status, data = req("/api/notes", "POST",
+                   {"title": "test-note-manual", "content": "початковий зміст"})
+assert status == 200 and data["ok"] is True and data["id"], data
+manual_id = data["id"]
+_, data = req("/api/notes")
+note = next(n for n in data["notes"] if n["id"] == manual_id)
+assert note["title"] == "test-note-manual" and note["content"] == "початковий зміст"
+assert note["starred"] == 0 and note["level"] == 0
+print("19. POST /api/notes створює нотатку вручну")
+
+status, data = req("/api/notes", "POST", {"title": "", "content": "щось"})
+assert status == 400 and data["ok"] is False, data
+print("20. POST без title -> 400, нічого не створюється")
+
+status, data = req(f"/api/notes/{manual_id}", "PATCH", {"content": "виправлений зміст"})
+assert status == 200 and data["ok"] is True, data
+_, data = req("/api/notes")
+note = next(n for n in data["notes"] if n["id"] == manual_id)
+assert note["content"] == "виправлений зміст", "content оновлено"
+assert note["title"] == "test-note-manual", "title не передавали -> лишився як був"
+print("21. PATCH /api/notes/<id> міняє лише передане поле (content)")
+
+status, data = req(f"/api/notes/{manual_id}", "PATCH", {})
+assert status == 400 and data["ok"] is False, data
+print("22. PATCH без жодного поля -> 400")
+
+status, data = req("/api/notes/999999", "PATCH", {"title": "щось"})
+assert status == 404 and data["ok"] is False, data
+print("23. PATCH неіснуючої нотатки -> 404")
+
+status, _ = req(f"/api/notes/{manual_id}", "DELETE")
+assert status == 200
+_, data = req("/api/notes")
+assert len(data["notes"]) == base_count, len(data["notes"])
+print(f"24. прибирання ручної нотатки; знову {base_count}")
+
 print("\nВСЕ OK (жодного звернення до Claude API)")

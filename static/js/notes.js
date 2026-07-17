@@ -7,7 +7,12 @@ registerKeyboardAwareOverlay(notesOverlay);
 const notesLog = document.getElementById("notes-log");
 const notesReviewBtn = document.getElementById("notes-review-btn");
 const notesFilterBtn = document.getElementById("notes-filter-btn");
+const noteForm = document.getElementById("note-form");
+const nfTitle = document.getElementById("nf-title");
+const nfContent = document.getElementById("nf-content");
 let notesCache = [];
+// id нотатки, яку зараз редагуємо формою; null — форма створює нову
+let editingNoteId = null;
 // збережено в localStorage — на відміну від expandedToolCalls у чаті, це не
 // одноразовий стан сесії, а стійке налаштування (щоб не перемикати щоразу)
 const NOTES_FILTER_KEY = "notesStarredOnly";
@@ -26,11 +31,10 @@ function applyNotesFilterButton() {
 }
 applyNotesFilterButton();   // одразу відобразити збережений стан, ще до першого відкриття нотаток
 
-async function openNotes(highlightId) {
-  notesOverlay.hidden = false;
-  lockBodyScroll();
-  syncOverlaysToViewport();
-  showNotesList();   // на випадок якщо минулого разу закрили посеред повторення
+// підтягнути свіжий список з сервера й перемалювати — БЕЗ повторного
+// lockBodyScroll (інакше збереження нотатки при вже відкритому вікні подвоїло б
+// лічильник блокування скролу й фон лишився б заблокованим після закриття)
+async function reloadNotes(highlightId) {
   try {
     const res = await fetchWithTimeout("/api/notes");
     if (!res.ok) throw new Error();
@@ -43,11 +47,76 @@ async function openNotes(highlightId) {
   }
 }
 
+async function openNotes(highlightId) {
+  notesOverlay.hidden = false;
+  lockBodyScroll();
+  syncOverlaysToViewport();
+  showNotesList();   // на випадок якщо минулого разу закрили посеред повторення
+  await reloadNotes(highlightId);
+}
+
 function toggleNotesFilter() {
   notesStarredOnly = !notesStarredOnly;
   localStorage.setItem(NOTES_FILTER_KEY, notesStarredOnly ? "1" : "0");
   applyNotesFilterButton();
   renderNotes();
+}
+
+// ---------- ручне створення / редагування нотатки ----------
+
+// показати форму: порожню для нової нотатки (id === null) або заповнену наявною
+function openNoteForm(note) {
+  editingNoteId = note ? note.id : null;
+  nfTitle.value = note ? note.title : "";
+  nfContent.value = note ? note.content : "";
+  noteForm.hidden = false;
+  notesLog.hidden = true;   // не показуємо список під формою — мало місця на телефоні
+  nfTitle.focus();
+}
+
+function closeNoteForm() {
+  noteForm.hidden = true;
+  notesLog.hidden = false;
+  editingNoteId = null;
+}
+
+// кнопка ➕ у шапці: перемикач форми "нова нотатка". Повторний тап при
+// відкритій формі нової нотатки — сховати; якщо ж форма показує редагування
+// наявної (або йде повторення) — перемкнути на порожню форму нової нотатки
+function toggleNoteForm() {
+  if (!noteForm.hidden && editingNoteId === null) {
+    closeNoteForm();
+    return;
+  }
+  if (!notesReview.hidden) showNotesList();   // вийти з повторення, якщо активне
+  openNoteForm(null);
+}
+
+async function saveNoteForm(e) {
+  e.preventDefault();
+  const title = nfTitle.value.trim();
+  const content = nfContent.value.trim();
+  if (!title || !content) {
+    alert("Потрібні і назва, і текст нотатки.");
+    return;
+  }
+  const editing = editingNoteId !== null;
+  const url = editing ? `/api/notes/${editingNoteId}` : "/api/notes";
+  try {
+    const res = await fetchWithTimeout(url, {
+      method: editing ? "PATCH" : "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title, content }),
+    });
+    if (!res.ok) throw new Error();
+    const saved = await res.json();
+    closeNoteForm();
+    // повний свіжий стан із сервера (POST/PATCH повертають лише змінені поля,
+    // а список хоче created_at/starred/level тощо) — і одразу підсвічуємо збережену
+    await reloadNotes(saved.id);
+  } catch {
+    alert("Немає з'єднання з сервером — нотатки доступні лише онлайн.");
+  }
 }
 
 function renderNotes(highlightId) {
@@ -69,6 +138,10 @@ function renderNotes(highlightId) {
     starBtn.title = n.starred ? "Прибрати з важливих" : "Позначити як важливу";
     starBtn.onclick = () => toggleNoteStar(n.id);
     actions.append(starBtn);
+    const editBtn = el("button", "note-edit", "✏️");
+    editBtn.title = "Редагувати нотатку";
+    editBtn.onclick = () => openNoteForm(n);
+    actions.append(editBtn);
     const delBtn = el("button", "note-del", "🗑");
     delBtn.title = "Видалити нотатку";
     delBtn.onclick = () => deleteNote(n.id);
@@ -136,6 +209,7 @@ function collectDueNotes() {
 }
 
 function showNotesList() {
+  closeNoteForm();   // повернення до списку завжди без відкритої форми
   notesReview.hidden = true;
   notesLog.hidden = false;
   notesReviewBtn.textContent = "🎓";
@@ -143,6 +217,7 @@ function showNotesList() {
 }
 
 function startNoteReview() {
+  closeNoteForm();   // не лишати форму поверх сесії повторення
   const { due, fresh } = collectDueNotes();
   noteQueue = [...shuffle(due), ...shuffle(fresh).slice(0, NEW_PER_SESSION)];
   noteDoneCount = 0;

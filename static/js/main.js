@@ -140,6 +140,9 @@ document.getElementById("chat-form").addEventListener("submit", sendChat);
 document.getElementById("practice-btn").addEventListener("click", startPractice);
 document.getElementById("notes-btn").addEventListener("click", () => openNotes());
 document.getElementById("notes-close").addEventListener("click", closeNotes);
+document.getElementById("notes-add-btn").addEventListener("click", toggleNoteForm);
+document.getElementById("note-form").addEventListener("submit", saveNoteForm);
+document.getElementById("nf-cancel").addEventListener("click", closeNoteForm);
 notesReviewBtn.addEventListener("click", toggleNoteReview);
 notesFilterBtn.addEventListener("click", toggleNotesFilter);
 nrReveal.addEventListener("click", revealNote);
@@ -149,7 +152,11 @@ nrRight.addEventListener("click", () => gradeNote(true));
 // клавіатура в сесії повторення: Enter/1/2/Escape
 window.addEventListener("keydown", (e) => {
   if (!notesOverlay.hidden) {          // нотатки можуть відкритись поверх чату
-    if (e.key === "Escape") closeNotes();
+    if (e.key === "Escape") {
+      // Escape при відкритій формі — спершу закрити форму, а не все вікно
+      if (!document.getElementById("note-form").hidden) closeNoteForm();
+      else closeNotes();
+    }
     return;
   }
   if (!chatOverlay.hidden) {          // чат зверху — клавіші повторення не діють

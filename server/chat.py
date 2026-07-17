@@ -541,6 +541,26 @@ def api_notes_list():
     return {"notes": [dict(r) for r in rows]}
 
 
+@chat_bp.route("/api/notes", methods=["POST"])
+def api_notes_create():
+    """Ручне створення нотатки з UI (не через чат). Валідація та вставка —
+    та сама execute_save_grammar_note, що й у чат-інструмента save_grammar_note."""
+    payload = request.get_json(silent=True) or {}
+    result = execute_save_grammar_note(get_db(), payload)
+    return (result, 200) if result.get("ok") else (result, 400)
+
+
+@chat_bp.route("/api/notes/<int:note_id>", methods=["PATCH"])
+def api_notes_edit(note_id):
+    """Ручне редагування нотатки з UI. Логіка — та сама execute_edit_grammar_note,
+    що й у чат-інструмента edit_grammar_note (id з маршруту, не з тіла)."""
+    payload = request.get_json(silent=True) or {}
+    result = execute_edit_grammar_note(get_db(), {**payload, "id": note_id})
+    if result.get("ok"):
+        return result
+    return (result, 404) if result.get("error") == "нотатку не знайдено" else (result, 400)
+
+
 @chat_bp.route("/api/notes/<int:note_id>/star", methods=["POST"])
 def api_notes_star(note_id):
     """Перемикає позначку "важлива" — без тіла запиту, просто toggle поточного стану."""
