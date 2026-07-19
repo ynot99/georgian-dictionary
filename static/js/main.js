@@ -121,6 +121,7 @@ function downloadReminder() {
 }
 
 document.getElementById("reminder-btn").addEventListener("click", downloadReminder);
+document.getElementById("sound-btn").addEventListener("click", toggleSound);
 
 function closeChat() {
   chatOverlay.hidden = true;

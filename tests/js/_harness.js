@@ -6,7 +6,7 @@ const path = require("path");
 // звертаються на верхньому рівні до функцій з попередніх (напр. srs.js/chat.js/
 // notes.js викликають registerKeyboardAwareOverlay з overlay.js одразу при завантаженні).
 const APP_FILES = [
-  "overlay.js", "store.js", "srs.js", "csv.js", "stats.js",
+  "overlay.js", "store.js", "srs.js", "notify.js", "csv.js", "stats.js",
   "render.js", "chat.js", "notes.js", "main.js",
 ];
 const APP_SCRIPT = APP_FILES.map((name) =>

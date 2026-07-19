@@ -18,7 +18,12 @@ let reviews = (() => {
   try { return JSON.parse(localStorage.getItem("reviews") || "{}"); }
   catch { return {}; }
 })();
-function saveReviews() { localStorage.setItem("reviews", JSON.stringify(reviews)); }
+function saveReviews() {
+  localStorage.setItem("reviews", JSON.stringify(reviews));
+  // reviews змінились (grade / sync / видалення слова все йде сюди) — переставити
+  // таймер звукового нагадування на найближчу майбутню картку
+  if (typeof scheduleNextChime === "function") scheduleNextChime();
+}
 
 // журнал повторень по днях (локальна дата → кількість оцінених карток);
 // живе тільки на цьому пристрої, потрібен для статистики й серії днів
