@@ -68,6 +68,43 @@ function collectDue() {
   return { due, fresh };
 }
 
+// чи картка a складніша за b (для впорядкування близнюків): головний сигнал —
+// lapses (скільки разів цей напрямок провалено за весь час, тобто який бік ти
+// хронічно знаєш гірше); за рівних lapses складнішим вважаємо менший level
+function harderCard(a, b) {
+  const ra = reviews[a.w.uuid + "|" + a.dir];
+  const rb = reviews[b.w.uuid + "|" + b.dir];
+  const lapA = ra ? ra.lapses || 0 : 0;
+  const lapB = rb ? rb.lapses || 0 : 0;
+  if (lapA !== lapB) return lapA > lapB;
+  const lvlA = ra ? ra.level : 0;
+  const lvlB = rb ? rb.level : 0;
+  return lvlA < lvlB;
+}
+
+// коли обидва напрямки одного слова потрапили в цю сесію, ставимо складніший
+// ПЕРЕД легшим: інакше легкий напрямок, показаний першим, підказав би відповідь
+// для важкого (обидва напрямки — те саме слово). Свопаємо лише два близнюки
+// місцями, зберігаючи решту перемішаного порядку — НЕ кластеризуємо їх поруч і
+// НЕ робимо сесію "все важке спочатку" (це вбило б користь від перемішування
+// різних складнощів). Мутує масив на місці й повертає його.
+function orderSiblingsHarderFirst(cards) {
+  const idxByWord = new Map();
+  cards.forEach((c, i) => {
+    const arr = idxByWord.get(c.w.uuid);
+    if (arr) arr.push(i);
+    else idxByWord.set(c.w.uuid, [i]);
+  });
+  for (const idxs of idxByWord.values()) {
+    if (idxs.length < 2) continue;   // лише один напрямок у черзі — впорядковувати нема що
+    const [lo, hi] = idxs[0] < idxs[1] ? [idxs[0], idxs[1]] : [idxs[1], idxs[0]];
+    if (harderCard(cards[hi], cards[lo])) {
+      [cards[lo], cards[hi]] = [cards[hi], cards[lo]];
+    }
+  }
+  return cards;
+}
+
 // коли стане доступна найближча картка (якщо зараз нічого не due і немає
 // нових слів) — щоб не треба було раз у раз відкривати застосунок "про всяк
 // випадок"; null, якщо взагалі нема запланованих повторень у цій області
@@ -233,7 +270,14 @@ function openSession(cards, practice) {
 
 function startReview() {
   const { due, fresh } = collectDue();
-  openSession([...shuffle(due), ...shuffle(fresh).slice(0, NEW_PER_SESSION)], false);
+  // впорядковуємо близнюків лише серед прострочених (due): нові (fresh) обидва
+  // ще level 0/lapses 0 — рівні, тож там нема "складнішого". Порядок due-перед-
+  // fresh зберігається (спершу розгрібаємо борг, потім нові слова)
+  const queue = [
+    ...orderSiblingsHarderFirst(shuffle(due)),
+    ...shuffle(fresh).slice(0, NEW_PER_SESSION),
+  ];
+  openSession(queue, false);
 }
 
 // тренування активного тега: та сама механіка карток, але без запису в SRS
