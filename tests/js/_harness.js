@@ -7,7 +7,7 @@ const path = require("path");
 // notes.js викликають registerKeyboardAwareOverlay з overlay.js одразу при завантаженні).
 const APP_FILES = [
   "overlay.js", "store.js", "srs.js", "notify.js", "csv.js", "stats.js",
-  "render.js", "chat.js", "notes.js", "main.js",
+  "render.js", "chat.js", "notes.js", "sentences.js", "main.js",
 ];
 const APP_SCRIPT = APP_FILES.map((name) =>
   fs.readFileSync(path.join(__dirname, "..", "..", "static", "js", name), "utf8")

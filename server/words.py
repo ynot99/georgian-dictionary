@@ -6,9 +6,11 @@ from datetime import datetime
 
 from flask import Blueprint, Response, redirect, render_template, request, url_for
 
-from .db import get_db, normalize_tags, review_dict, utcnow, word_dict
+from .db import get_db, normalize_tags, review_dict, sentence_dict, utcnow, word_dict
 
 words_bp = Blueprint("words", __name__)
+
+SENTENCE_BLANK = "____"
 
 
 @words_bp.route("/api/words")
@@ -71,10 +73,64 @@ def api_sync():
     db.commit()
     words = db.execute("SELECT * FROM words ORDER BY id DESC").fetchall()
     reviews = db.execute("SELECT * FROM reviews").fetchall()
+    sentences = db.execute("SELECT * FROM sentences ORDER BY id").fetchall()
     return {
         "words": [word_dict(r) for r in words],
         "reviews": [review_dict(r) for r in reviews],
+        "sentences": [sentence_dict(r) for r in sentences],
     }
+
+
+@words_bp.route("/api/sentences")
+def api_sentences():
+    rows = get_db().execute("SELECT * FROM sentences ORDER BY id").fetchall()
+    return {"sentences": [sentence_dict(r) for r in rows]}
+
+
+@words_bp.route("/api/sentences", methods=["POST"])
+def api_sentences_add():
+    """Додає вправи на реченнях. Рядок без обов'язкових полів, без рівно одного
+    пропуску ____ чи з невідомим word_uuid не вставляється — його індекс
+    повертається в invalid, решта рядків однаково додаються.
+    """
+    payload = request.get_json(silent=True) or {}
+    db = get_db()
+    created = duplicates = 0
+    invalid = []
+    for index, row in enumerate(payload.get("sentences", [])):
+        word_uuid = (row.get("word_uuid") or "").strip()
+        sentence = (row.get("sentence") or "").strip()
+        answer = (row.get("answer") or "").strip()
+        translation = (row.get("translation") or "").strip()
+        word_exists = db.execute(
+            "SELECT 1 FROM words WHERE uuid = ?", (word_uuid,)
+        ).fetchone()
+        if (
+            not (word_exists and answer and translation)
+            or sentence.count(SENTENCE_BLANK) != 1
+        ):
+            invalid.append(index)
+            continue
+        cursor = db.execute(
+            "INSERT OR IGNORE INTO sentences (word_uuid, sentence, answer, "
+            "translation, hint, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (word_uuid, sentence, answer, translation,
+             (row.get("hint") or "").strip(), utcnow()),
+        )
+        if cursor.rowcount:
+            created += 1
+        else:
+            duplicates += 1
+    db.commit()
+    return {"created": created, "duplicates": duplicates, "invalid": invalid}
+
+
+@words_bp.route("/api/sentences/<int:sentence_id>", methods=["DELETE"])
+def api_sentences_delete(sentence_id):
+    db = get_db()
+    db.execute("DELETE FROM sentences WHERE id = ?", (sentence_id,))
+    db.commit()
+    return {"ok": True}
 
 
 @words_bp.route("/api/import", methods=["POST"])
@@ -152,6 +208,7 @@ def api_delete(word_uuid):
     db = get_db()
     db.execute("DELETE FROM words WHERE uuid = ?", (word_uuid,))
     db.execute("DELETE FROM reviews WHERE word_uuid = ?", (word_uuid,))
+    db.execute("DELETE FROM sentences WHERE word_uuid = ?", (word_uuid,))
     db.commit()
     return {"ok": True}
 

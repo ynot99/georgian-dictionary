@@ -25,6 +25,15 @@ function saveReviews() {
   if (typeof scheduleNextChime === "function") scheduleNextChime();
 }
 
+// вправи на реченнях: копія з сервера, щоб працювали офлайн (лише читання)
+let sentences = (() => {
+  try { return JSON.parse(localStorage.getItem("sentences") || "[]"); }
+  catch { return []; }
+})();
+function saveSentences() {
+  localStorage.setItem("sentences", JSON.stringify(sentences));
+}
+
 // журнал повторень по днях (локальна дата → кількість оцінених карток);
 // живе тільки на цьому пристрої, потрібен для статистики й серії днів
 let reviewLog = (() => {
@@ -121,6 +130,8 @@ async function sync() {
       reviews[r.word_uuid + "|" + r.direction] = { ...r, synced: true };
     }
     saveReviews();
+    sentences = data.sentences || [];
+    saveSentences();
     online = true;
   } catch {
     online = false;
@@ -151,6 +162,8 @@ function dropLocalWord(uuid) {
     if (key.startsWith(uuid + "|")) delete reviews[key];
   }
   saveReviews();
+  sentences = sentences.filter((s) => s.word_uuid !== uuid);
+  saveSentences();
 }
 
 async function deleteWord(w) {

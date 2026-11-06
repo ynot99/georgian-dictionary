@@ -296,6 +296,14 @@ function render() {
     practiceBtn.title = "Пройти всю категорію зараз — не впливає на SRS-розклад";
   }
 
+  const sentencesBtn = document.getElementById("sentences-btn");
+  const sentenceCount = sentencesInScope().length;
+  sentencesBtn.hidden = !sentenceCount;
+  if (sentenceCount) {
+    sentencesBtn.textContent = `✍️ Речення${activeTag ? `: ${scopeLabel}` : ""} (${sentenceCount})`;
+    sentencesBtn.title = "Вставити слово в правильній формі — не впливає на SRS-розклад";
+  }
+
   const nextEl = document.getElementById("review-next");
   const next = !total && nextDueAt();
   nextEl.hidden = !next;

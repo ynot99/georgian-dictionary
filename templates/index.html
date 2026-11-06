@@ -35,6 +35,7 @@
     <button type="button" id="notes-btn">📖 Нотатки</button>
   </div>
   <button type="button" id="practice-btn" hidden></button>
+  <button type="button" id="sentences-btn" hidden></button>
   <p class="review-next" id="review-next" hidden></p>
 
   <div class="tagbar" id="tagbar" hidden></div>
@@ -78,6 +79,31 @@
       <button type="button" id="rv-retry-wrong" hidden>🔁 Ще раз провалені</button>
     </div>
     <p class="rv-hint" id="rv-hint" hidden></p>
+  </div>
+
+  <div id="sentences-overlay" hidden>
+    <div class="rv-top">
+      <span id="st-progress"></span>
+      <span class="rv-top-btns">
+        <button type="button" id="st-close" title="Закрити">✕</button>
+      </span>
+    </div>
+    <div class="rv-card">
+      <p class="rv-front" id="st-sentence" lang="ka"></p>
+      <p class="rv-ex" id="st-translation"></p>
+      <p class="rv-verdict" id="st-verdict" hidden></p>
+      <p class="rv-cloze" id="st-grammar" hidden></p>
+      <p class="rv-done" id="st-done" hidden></p>
+    </div>
+    <form class="rv-type" id="st-form">
+      <input id="st-input" lang="ka" autocomplete="off" autocapitalize="off"
+             autocorrect="off" spellcheck="false" placeholder="ქართული…">
+      <button type="submit">Перевірити</button>
+    </form>
+    <div class="rv-actions">
+      <button type="button" id="st-next" hidden>Далі</button>
+    </div>
+    <p class="rv-hint" id="st-keys" hidden>Enter — перевірити / далі · Esc — закрити</p>
   </div>
 
   <div id="chat-overlay" hidden>
@@ -140,6 +166,7 @@
 <script src="/static/js/render.js"></script>
 <script src="/static/js/chat.js"></script>
 <script src="/static/js/notes.js"></script>
+<script src="/static/js/sentences.js"></script>
 <script src="/static/js/main.js"></script>
 </body>
 </html>

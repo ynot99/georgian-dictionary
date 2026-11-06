@@ -111,6 +111,23 @@ def init_db():
                 created_at TEXT NOT NULL
             )
         """)
+        # вправи на реченнях: у sentence пропуск ____, answer — змінена форма слова;
+        # унікальний індекс робить повторне додавання тих самих речень безпечним
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS sentences (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                word_uuid TEXT NOT NULL,
+                sentence TEXT NOT NULL,
+                answer TEXT NOT NULL,
+                translation TEXT NOT NULL,
+                hint TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL
+            )
+        """)
+        db.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_sentences_word_sentence "
+            "ON sentences(word_uuid, sentence)"
+        )
 
 
 def utcnow():
@@ -157,4 +174,15 @@ def review_dict(row):
         "due_at": row["due_at"],
         "reviewed_at": row["reviewed_at"],
         "lapses": row["lapses"],
+    }
+
+
+def sentence_dict(row):
+    return {
+        "id": row["id"],
+        "word_uuid": row["word_uuid"],
+        "sentence": row["sentence"],
+        "answer": row["answer"],
+        "translation": row["translation"],
+        "hint": row["hint"],
     }
