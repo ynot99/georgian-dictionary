@@ -24,7 +24,7 @@ req("/api/sync", "POST", {"words": [
 
 try:
     good = {"word_uuid": WORD, "sentence": "მე ____ ვსვამ.", "answer": "წყალს",
-            "translation": "Я п'ю воду.", "hint": "წყალი, знахідний відмінок"}
+            "translation": "Я п'ю воду.", "hint": "წყალი, давальний відмінок"}
     status, res = req("/api/sentences", "POST", {"sentences": [good]})
     assert status == 200 and res == {"created": 1, "duplicates": 0, "invalid": []}, res
     print("1. речення додано")
