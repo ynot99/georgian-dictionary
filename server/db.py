@@ -128,6 +128,24 @@ def init_db():
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_sentences_word_sentence "
             "ON sentences(word_uuid, sentence)"
         )
+        # довідник: слова, яких ще немає у вивченні; forms — відмінкові й інші
+        # форми через пробіл, щоб упізнати слово, записане в словнику іншою формою
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS catalog (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                georgian TEXT NOT NULL,
+                pos TEXT NOT NULL DEFAULT '',
+                translation TEXT NOT NULL,
+                gloss TEXT NOT NULL DEFAULT '',
+                forms TEXT NOT NULL DEFAULT '',
+                rank INTEGER NOT NULL DEFAULT 0,
+                updated_at TEXT NOT NULL
+            )
+        """)
+        db.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_catalog_georgian_pos "
+            "ON catalog(georgian, pos)"
+        )
 
 
 def utcnow():

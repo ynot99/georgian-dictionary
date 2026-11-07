@@ -6,6 +6,7 @@ from datetime import datetime
 
 from flask import Blueprint, Response, redirect, render_template, request, url_for
 
+from .catalog import catalog_version
 from .db import get_db, normalize_tags, review_dict, sentence_dict, utcnow, word_dict
 
 words_bp = Blueprint("words", __name__)
@@ -78,6 +79,7 @@ def api_sync():
         "words": [word_dict(r) for r in words],
         "reviews": [review_dict(r) for r in reviews],
         "sentences": [sentence_dict(r) for r in sentences],
+        "catalog_version": catalog_version(db),
     }
 
 

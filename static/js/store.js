@@ -132,6 +132,7 @@ async function sync() {
     saveReviews();
     sentences = data.sentences || [];
     saveSentences();
+    refreshCatalog(data.catalog_version);
     online = true;
   } catch {
     online = false;

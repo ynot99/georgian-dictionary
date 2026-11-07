@@ -326,3 +326,8 @@ form.add button {
 #nr-reveal { background: var(--accent); color: #fff; }
 #nr-wrong { background: var(--card); border: 1px solid var(--border); color: var(--text); }
 #nr-right { background: var(--accent); color: #fff; }
+.catalog-title { color: var(--muted); font-size: .85rem; font-weight: 600; margin: 16px 0 8px; }
+.word.catalog-entry { border-style: dashed; }
+.catalog-pos { margin-left: 8px; color: var(--muted); font-size: .75rem; font-weight: 400; }
+.catalog-known { color: #4caf50; font-size: .85rem; margin-top: 6px; }
+.word .actions button.catalog-add { color: var(--accent); font-weight: 600; white-space: nowrap; }

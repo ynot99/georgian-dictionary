@@ -15,6 +15,13 @@ document.getElementById("add-form").addEventListener("submit", (e) => {
   if (dup && !confirm(`«${georgian}» вже є в словнику (переклад: ${dup.translation}). Додати ще раз?`)) {
     return;
   }
+  // за довідником це може бути інша форма вже доданого слова (წყალს / წყალი)
+  const related = dup ? [] : relatedWords(georgian);
+  if (related.length && !confirm(
+    `Схоже, це форма слова, яке вже є: ${related.map((w) => `${w.georgian} (${w.translation})`).join(", ")}. Додати окремо?`
+  )) {
+    return;
+  }
   addWord(georgian, translation, example, tags);
   e.target.reset();
   document.getElementById("f-georgian").focus();

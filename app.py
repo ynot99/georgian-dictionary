@@ -7,6 +7,7 @@ from datetime import datetime
 from flask import Flask, render_template
 
 from backup_db import create_backup, last_backup_at, prune_backups
+from server.catalog import catalog_bp
 from server.chat import chat_bp
 from server.db import close_db, init_db
 from server.mkcert import CERT_FILE, KEY_FILE, ensure_cert, find_mkcert, local_ip, mkcert_bp
@@ -17,6 +18,7 @@ AUTO_BACKUP_INTERVAL = 24 * 60 * 60  # раз на добу
 app = Flask(__name__)
 app.register_blueprint(words_bp)
 app.register_blueprint(chat_bp)
+app.register_blueprint(catalog_bp)
 app.register_blueprint(mkcert_bp)
 app.teardown_appcontext(close_db)
 

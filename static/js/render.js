@@ -266,8 +266,10 @@ function render() {
   }
   if (!shown.length) {
     listEl.append(el("p", "empty",
-      q || activeTag ? "Нічого не знайдено." : "Поки що порожньо — додай перше слово!"));
+      q ? "У твоєму словнику нічого не знайдено."
+        : activeTag ? "Нічого не знайдено." : "Поки що порожньо — додай перше слово!"));
   }
+  if (q) renderCatalogHits(q);
 
   const pending = words.filter((w) => !w.synced).length;
   statusEl.classList.toggle("offline", online === false);
