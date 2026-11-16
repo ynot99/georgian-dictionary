@@ -264,12 +264,13 @@ function render() {
     card.append(actions);
     listEl.append(card);
   }
-  if (!shown.length) {
+  const catalogHits = q ? searchCatalog(q) : [];
+  // якщо є збіги в довіднику, порожній результат у словнику не коментуємо
+  if (!shown.length && !catalogHits.length) {
     listEl.append(el("p", "empty",
-      q ? "У твоєму словнику нічого не знайдено."
-        : activeTag ? "Нічого не знайдено." : "Поки що порожньо — додай перше слово!"));
+      q || activeTag ? "Нічого не знайдено." : "Поки що порожньо — додай перше слово!"));
   }
-  if (q) renderCatalogHits(q);
+  renderCatalogHits(catalogHits);
 
   const pending = words.filter((w) => !w.synced).length;
   statusEl.classList.toggle("offline", online === false);

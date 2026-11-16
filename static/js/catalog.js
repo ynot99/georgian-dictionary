@@ -84,9 +84,8 @@ function addFromCatalog(entry) {
   addWord(entry.georgian, entry.translation, "", [entry.pos, CATALOG_TAG].join(", "));
 }
 
-function renderCatalogHits(query) {
-  const hits = searchCatalog(query);
-  if (!hits.length) return 0;
+function renderCatalogHits(hits) {
+  if (!hits.length) return;
   listEl.append(el("p", "catalog-title", "📚 Довідник"));
   for (const entry of hits) {
     const card = el("div", "word catalog-entry");
@@ -111,5 +110,4 @@ function renderCatalogHits(query) {
     }
     listEl.append(card);
   }
-  return hits.length;
 }
