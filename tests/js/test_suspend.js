@@ -56,6 +56,8 @@ const first = currentCard.w;
 sessionWrong = [{ w: first, dir: "uk2ka" }];
 const levelBefore = reviews[first.uuid + "|ka2uk"].level;
 suspendCurrent();
+assert.ok(!isSuspended(first) && currentCard.w === first, "перший тап лише просить підтвердження");
+suspendCurrent();
 assert.ok(isSuspended(first));
 assert.ok(queue.every((c) => c.w.uuid !== first.uuid), "у черзі не лишилось карток слова");
 assert.ok(currentCard === null || currentCard.w.uuid !== first.uuid);

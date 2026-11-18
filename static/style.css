@@ -74,6 +74,7 @@ form.add button {
 }
 .leech-badge { margin-left: 4px; font-size: .85em; cursor: default; }
 .suspended-badge { margin-left: 4px; font-size: .85em; cursor: default; }
+#rv-suspend.armed { color: var(--accent); font-weight: 600; }
 .word.suspended .body { opacity: .55; }
 .word .actions { display: flex; flex-direction: column; gap: 6px; }
 .word .actions a, .word .actions button {

@@ -329,6 +329,7 @@ function presentCard() {
   rvDir.hidden = rvFront.hidden = finished;
   rvBack.hidden = rvEx.hidden = rvVerdict.hidden = rvCloze.hidden = true;
   rvWrong.hidden = rvRight.hidden = rvRetryWrong.hidden = rvSuspend.hidden = true;
+  disarmSuspend();
   rvMode.hidden = finished;
   lastVerdict = null;
   if (finished) {
@@ -466,9 +467,24 @@ function grade(correct) {
 // прибирає слово з повторень без оцінки: обидва напрямки зникають з черги
 // і з "Ще раз провалені", рівень і lapses лишаються як були — після
 // повернення слово продовжить з того ж місця
+//
+// Підтвердження — другим тапом по тій самій кнопці, а не confirm(): браузер
+// може мовчки блокувати системні діалоги (тоді confirm() одразу повертає false
+// і кнопка просто "не працює")
+let suspendArmed = false;
+
+function disarmSuspend() {
+  suspendArmed = false;
+  rvSuspend.textContent = "⏸";
+  rvSuspend.classList.toggle("armed", false);
+}
+
 function suspendCurrent() {
   const { w } = currentCard;
-  if (!confirm(`Відкласти «${w.georgian}»? Слово зникне з повторень, але лишиться в словнику — повернути можна у фільтрі «⏸ відкладені».`)) {
+  if (!suspendArmed) {
+    suspendArmed = true;
+    rvSuspend.textContent = "⏸ Відкласти?";
+    rvSuspend.classList.toggle("armed", true);
     return;
   }
   setSuspended(w, true);
