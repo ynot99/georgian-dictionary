@@ -7,7 +7,10 @@ from datetime import datetime
 from flask import Blueprint, Response, redirect, render_template, request, url_for
 
 from .catalog import catalog_version
-from .db import get_db, normalize_tags, review_dict, sentence_dict, utcnow, word_dict
+from .db import (
+    get_db, normalize_tags, review_dict, sentence_dict, suspension_dict, utcnow,
+    word_dict,
+)
 
 words_bp = Blueprint("words", __name__)
 
@@ -26,6 +29,7 @@ def api_sync():
 
     Слова: дедуплікація по uuid (INSERT OR IGNORE).
     Повторення: last-write-wins по reviewed_at — новіша оцінка перекриває старішу.
+    Відкладені слова: так само last-write-wins, по changed_at.
     """
     payload = request.get_json(silent=True) or {}
     db = get_db()
@@ -71,13 +75,31 @@ def api_sync():
                 (word_uuid, direction, int(r.get("level") or 0), due_at, reviewed_at,
                  int(r.get("lapses") or 0)),
             )
+    for s in payload.get("suspensions", []):
+        word_uuid = (s.get("word_uuid") or "").strip()
+        changed_at = (s.get("changed_at") or "").strip()
+        if not (word_uuid and changed_at):
+            continue
+        if not db.execute("SELECT 1 FROM words WHERE uuid = ?", (word_uuid,)).fetchone():
+            continue
+        existing = db.execute(
+            "SELECT changed_at FROM suspensions WHERE word_uuid = ?", (word_uuid,)
+        ).fetchone()
+        if existing is None or changed_at > existing["changed_at"]:
+            db.execute(
+                "INSERT OR REPLACE INTO suspensions (word_uuid, suspended, changed_at) "
+                "VALUES (?, ?, ?)",
+                (word_uuid, 1 if s.get("suspended") else 0, changed_at),
+            )
     db.commit()
     words = db.execute("SELECT * FROM words ORDER BY id DESC").fetchall()
     reviews = db.execute("SELECT * FROM reviews").fetchall()
     sentences = db.execute("SELECT * FROM sentences ORDER BY id").fetchall()
+    suspensions = db.execute("SELECT * FROM suspensions").fetchall()
     return {
         "words": [word_dict(r) for r in words],
         "reviews": [review_dict(r) for r in reviews],
+        "suspensions": [suspension_dict(r) for r in suspensions],
         "sentences": [sentence_dict(r) for r in sentences],
         "catalog_version": catalog_version(db),
     }
@@ -211,6 +233,7 @@ def api_delete(word_uuid):
     db.execute("DELETE FROM words WHERE uuid = ?", (word_uuid,))
     db.execute("DELETE FROM reviews WHERE word_uuid = ?", (word_uuid,))
     db.execute("DELETE FROM sentences WHERE word_uuid = ?", (word_uuid,))
+    db.execute("DELETE FROM suspensions WHERE word_uuid = ?", (word_uuid,))
     db.commit()
     return {"ok": True}
 

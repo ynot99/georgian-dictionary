@@ -8,7 +8,7 @@
 const SENTENCES_PER_SESSION = 10;
 
 function sentencesInScope() {
-  const uuids = new Set(wordsInScope().map((w) => w.uuid));
+  const uuids = new Set(practicableInScope().map((w) => w.uuid));
   return sentences.filter((s) => uuids.has(s.word_uuid));
 }
 

@@ -146,6 +146,16 @@ def init_db():
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_catalog_georgian_pos "
             "ON catalog(georgian, pos)"
         )
+        # відкладені слова: окремо від words, бо слова синхронізуються лише як
+        # нові (INSERT OR IGNORE), а позначку треба міняти й офлайн. Рядок із
+        # suspended = 0 не видаляється — так повернення теж перемагає за changed_at
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS suspensions (
+                word_uuid TEXT PRIMARY KEY,
+                suspended INTEGER NOT NULL,
+                changed_at TEXT NOT NULL
+            )
+        """)
 
 
 def utcnow():
@@ -156,9 +166,10 @@ def due_date_str(days):
     return (datetime.now(timezone.utc) + timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
 
 
-# зарезервовані для вбудованих чипів у панелі тегів ("усі", "🩹 проблемні") —
-# звичайним тегом стати не можуть (дублює логіку RESERVED_TAGS у static/js/store.js)
-RESERVED_TAGS = {"усі", "проблемні"}
+# зарезервовані для вбудованих чипів у панелі тегів ("усі", "🩹 проблемні",
+# "⏸ відкладені") — звичайним тегом стати не можуть (дублює логіку
+# RESERVED_TAGS у static/js/store.js)
+RESERVED_TAGS = {"усі", "проблемні", "відкладені"}
 
 
 def normalize_tags(raw):
@@ -192,6 +203,14 @@ def review_dict(row):
         "due_at": row["due_at"],
         "reviewed_at": row["reviewed_at"],
         "lapses": row["lapses"],
+    }
+
+
+def suspension_dict(row):
+    return {
+        "word_uuid": row["word_uuid"],
+        "suspended": bool(row["suspended"]),
+        "changed_at": row["changed_at"],
     }
 
 

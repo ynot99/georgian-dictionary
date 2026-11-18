@@ -38,6 +38,7 @@ function wordOfDay() {
   const dateKey = localDateKey();
   let best = null, bestKey = -Infinity;
   for (const w of words) {
+    if (isSuspended(w)) continue;   // відкладене слово не варто нагадувати щодня
     const key = wodKey(w, dateKey);
     if (key > bestKey) { bestKey = key; best = w; }
   }
@@ -91,6 +92,7 @@ function statsData() {
   // рівень картки = поточний рівень SRS; слово має 2 картки (напрямки)
   let fresh = 0, learning = 0, solid = 0;
   for (const w of words) {
+    if (isSuspended(w)) continue;
     for (const dir of DIRECTIONS) {
       const r = reviews[w.uuid + "|" + dir];
       const level = r ? r.level : 0;

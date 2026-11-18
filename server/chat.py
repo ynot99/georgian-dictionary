@@ -430,6 +430,10 @@ def build_tutor_system(db):
         "SELECT word_uuid, MAX(level) AS lvl FROM reviews GROUP BY word_uuid"
     ):
         levels[row["word_uuid"]] = row["lvl"]
+    suspended = {
+        row["word_uuid"]
+        for row in db.execute("SELECT word_uuid FROM suspensions WHERE suspended = 1")
+    }
 
     trained = [w for w in words if w["uuid"] in levels]
     untrained = [w for w in words if w["uuid"] not in levels]
@@ -438,10 +442,11 @@ def build_tutor_system(db):
     hidden = len(untrained) - len(shown_untrained)
 
     def word_line(w):
-        line = (
-            f"- {w['georgian']} — {w['translation']} "
-            f"[{srs_status(levels.get(w['uuid'], 0))}]"
-        )
+        if w["uuid"] in suspended:
+            status = "відкладене"
+        else:
+            status = srs_status(levels.get(w["uuid"], 0))
+        line = f"- {w['georgian']} — {w['translation']} [{status}]"
         if w["tags"]:
             line += f" (теги: {w['tags']})"
         if w["example"]:
@@ -490,7 +495,8 @@ def build_tutor_system(db):
 у дужках, м'яко виправляй помилки і коротко пояснюй відповідне правило.
 - Пояснюй граматику простими словами з прикладами; порівнюй з українською, де це допомагає.
 - Будуй розмову і приклади насамперед на словах зі словника учня (особливо зі статусом \
-"вивчається"); нові слова поза словником додавай потроху, 1-2 за раз, одразу з перекладом.
+"вивчається"); нові слова поза словником додавай потроху, 1-2 за раз, одразу з перекладом. \
+Слова зі статусом "відкладене" учень свідомо прибрав з повторень — не наполягай на них.
 - Це мобільний чат: відповідай стисло (зазвичай 2-6 речень), без таблиць, заголовків і \
 жирного тексту. Список — лише коли він справді доречний.
 - Не вигадуй прогрес учня — спирайся лише на словник нижче.

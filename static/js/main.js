@@ -48,6 +48,7 @@ rvReveal.addEventListener("click", reveal);
 rvWrong.addEventListener("click", () => grade(false));
 rvRight.addEventListener("click", () => grade(true));
 rvRetryWrong.addEventListener("click", retryWrong);
+rvSuspend.addEventListener("click", suspendCurrent);
 rvType.addEventListener("submit", (e) => {
   e.preventDefault();
   checkTyped();

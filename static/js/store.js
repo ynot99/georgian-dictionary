@@ -34,6 +34,31 @@ function saveSentences() {
   localStorage.setItem("sentences", JSON.stringify(sentences));
 }
 
+// відкладені слова: uuid → {word_uuid, suspended, changed_at, synced}. Синхронізуються
+// як оцінки (last-write-wins за changed_at), тож відкласти й повернути можна офлайн
+let suspensions = (() => {
+  try { return JSON.parse(localStorage.getItem("suspensions") || "{}"); }
+  catch { return {}; }
+})();
+function saveSuspensions() {
+  localStorage.setItem("suspensions", JSON.stringify(suspensions));
+}
+
+function isSuspended(w) {
+  const s = suspensions[w.uuid];
+  return !!(s && s.suspended);
+}
+
+function setSuspended(w, suspended) {
+  suspensions[w.uuid] = {
+    word_uuid: w.uuid,
+    suspended,
+    changed_at: new Date().toISOString().slice(0, 19).replace("T", " "),
+    synced: false,
+  };
+  saveSuspensions();
+}
+
 // журнал повторень по днях (локальна дата → кількість оцінених карток);
 // живе тільки на цьому пристрої, потрібен для статистики й серії днів
 let reviewLog = (() => {
@@ -53,9 +78,10 @@ function logReview() {
   localStorage.setItem("reviewLog", JSON.stringify(reviewLog));
 }
 
-// зарезервовані для вбудованих чипів у панелі тегів ("усі", "🩹 проблемні") —
-// звичайним тегом стати не можуть, інакше в панелі буде два однакові на вигляд чипи
-const RESERVED_TAGS = ["усі", "проблемні"];
+// зарезервовані для вбудованих чипів у панелі тегів ("усі", "🩹 проблемні",
+// "⏸ відкладені") — звичайним тегом стати не можуть, інакше в панелі буде два
+// однакові на вигляд чипи
+const RESERVED_TAGS = ["усі", "проблемні", "відкладені"];
 
 // теги форм дієслів ("дієслово:<словникова форма>", конвенція чату — див.
 // server/chat.py) згортаються в панелі під один чип "📖 Дієслова", інакше
@@ -63,6 +89,8 @@ const RESERVED_TAGS = ["усі", "проблемні"];
 const VERB_TAG_PREFIX = "дієслово:";
 // "віртуальний тег" для activeTag: фільтр за будь-яким тегом з цим префіксом
 const VERB_TAG = " verbs";
+// "віртуальний тег" для activeTag: лише відкладені слова
+const SUSPENDED_TAG = " suspended";
 
 // "їжа, Дієслова,їжа" → "їжа, дієслова" (трім, нижній регістр, без дублів,
 // без зарезервованих слів)
@@ -83,6 +111,7 @@ let activeTag = null;   // активний фільтр списку і пов�
 
 function wordsInScope() {
   if (activeTag === LEECH_TAG) return words.filter(isLeech);
+  if (activeTag === SUSPENDED_TAG) return words.filter(isSuspended);
   if (activeTag === VERB_TAG) {
     return words.filter((w) => tagList(w).some((t) => t.startsWith(VERB_TAG_PREFIX)));
   }
@@ -115,11 +144,14 @@ function fetchWithTimeout(url, options) {
 async function sync() {
   const pending = words.filter((w) => !w.synced);
   const pendingReviews = Object.values(reviews).filter((r) => !r.synced);
+  const pendingSuspensions = Object.values(suspensions).filter((s) => !s.synced);
   try {
     const res = await fetchWithTimeout("/api/sync", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ words: pending, reviews: pendingReviews }),
+      body: JSON.stringify({
+        words: pending, reviews: pendingReviews, suspensions: pendingSuspensions,
+      }),
     });
     if (!res.ok) throw new Error("sync failed");
     const data = await res.json();
@@ -130,6 +162,11 @@ async function sync() {
       reviews[r.word_uuid + "|" + r.direction] = { ...r, synced: true };
     }
     saveReviews();
+    suspensions = {};
+    for (const s of data.suspensions || []) {
+      suspensions[s.word_uuid] = { ...s, synced: true };
+    }
+    saveSuspensions();
     sentences = data.sentences || [];
     saveSentences();
     refreshCatalog(data.catalog_version);
@@ -163,6 +200,8 @@ function dropLocalWord(uuid) {
     if (key.startsWith(uuid + "|")) delete reviews[key];
   }
   saveReviews();
+  delete suspensions[uuid];
+  saveSuspensions();
   sentences = sentences.filter((s) => s.word_uuid !== uuid);
   saveSentences();
 }

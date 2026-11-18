@@ -109,6 +109,7 @@ function renderTagbar() {
     }
   }
   const leechCount = words.filter(isLeech).length;
+  const suspendedCount = words.filter(isSuspended).length;
   const verbWordCount = words.filter((w) =>
     tagList(w).some((t) => t.startsWith(VERB_TAG_PREFIX))).length;
   // "у режимі дієслів" — або сам агрегатний чип активний, або конкретне дієслово з нього
@@ -116,15 +117,18 @@ function renderTagbar() {
     || (typeof activeTag === "string" && activeTag.startsWith(VERB_TAG_PREFIX));
 
   if (activeTag && activeTag !== LEECH_TAG && activeTag !== VERB_TAG
+      && activeTag !== SUSPENDED_TAG
       && !counts.has(activeTag) && !verbCounts.has(activeTag)) {
     activeTag = null;
   }
   if (activeTag === LEECH_TAG && !leechCount) activeTag = null;
+  if (activeTag === SUSPENDED_TAG && !suspendedCount) activeTag = null;
   if (activeTag === VERB_TAG && !verbWordCount) activeTag = null;
 
-  tagbar.hidden = counts.size === 0 && !leechCount && !verbWordCount;
+  const anyChips = counts.size || leechCount || verbWordCount || suspendedCount;
+  tagbar.hidden = !anyChips;
   tagbar.replaceChildren();
-  if (!counts.size && !leechCount && !verbWordCount) {
+  if (!anyChips) {
     lastActiveTagForScroll = activeTag;
     return;
   }
@@ -142,6 +146,17 @@ function renderTagbar() {
     leechChip.onclick = () => { activeTag = activeTag === LEECH_TAG ? null : LEECH_TAG; render(); };
     tagbar.append(leechChip);
     if (activeTag === LEECH_TAG) activeChipEl = leechChip;
+  }
+
+  if (suspendedCount) {
+    const suspendedChip = el("button", "chip" + (activeTag === SUSPENDED_TAG ? " active" : ""),
+      `⏸ відкладені (${suspendedCount})`);
+    suspendedChip.onclick = () => {
+      activeTag = activeTag === SUSPENDED_TAG ? null : SUSPENDED_TAG;
+      render();
+    };
+    tagbar.append(suspendedChip);
+    if (activeTag === SUSPENDED_TAG) activeChipEl = suspendedChip;
   }
 
   if (verbWordCount) {
@@ -171,7 +186,8 @@ function renderTagbar() {
     }
   }
 
-  if (activeTag && activeTag !== LEECH_TAG && activeTag !== VERB_TAG) {
+  if (activeTag && activeTag !== LEECH_TAG && activeTag !== VERB_TAG
+      && activeTag !== SUSPENDED_TAG) {
     // sticky-контейнер: щоб не гортати панель до самого кінця, коли тегів
     // уже багато — обидві кнопки в одному елементі, інакше кожна окремо
     // "прилипала" б до того самого правого краю й перекривала іншу
@@ -212,9 +228,15 @@ function render() {
 
   listEl.replaceChildren();
   for (const w of shown) {
-    const card = el("div", "word");
+    const suspended = isSuspended(w);
+    const card = el("div", "word" + (suspended ? " suspended" : ""));
     const body = el("div", "body tappable");
     const kaEl = el("div", "ka", w.georgian);
+    if (suspended) {
+      const badge = el("span", "suspended-badge", "⏸");
+      badge.title = "Відкладене — не з'являється в повтореннях";
+      kaEl.append(badge);
+    }
     if (isLeech(w)) {
       const badge = el("span", "leech-badge", "🩹");
       badge.title = `Проблемне слово — провалено на повтореннях ${LEECH_THRESHOLD}+ разів`;
@@ -257,6 +279,16 @@ function render() {
       editLink.title = "Редагувати";
       actions.append(editLink);
     }
+    if (suspended) {
+      const resumeBtn = el("button", null, "▶");
+      resumeBtn.title = "Повернути в повторення";
+      resumeBtn.onclick = () => {
+        setSuspended(w, false);
+        render();
+        sync();
+      };
+      actions.append(resumeBtn);
+    }
     const delBtn = el("button", null, "✕");
     delBtn.title = "Видалити";
     delBtn.onclick = () => deleteWord(w);
@@ -283,7 +315,8 @@ function render() {
   const total = due.length + Math.min(fresh.length, NEW_PER_SESSION);
   const reviewBtn = document.getElementById("review-btn");
   const scopeLabel = activeTag === LEECH_TAG ? "проблемні"
-    : activeTag === VERB_TAG ? "дієслова" : activeTag;
+    : activeTag === VERB_TAG ? "дієслова"
+    : activeTag === SUSPENDED_TAG ? "відкладені" : activeTag;
   const label = activeTag ? `🎓 Повторення: ${scopeLabel}` : "🎓 Повторення";
   reviewBtn.textContent = total ? `${label} (${total})` : label;
   reviewBtn.disabled = !total;
@@ -292,7 +325,7 @@ function render() {
   // а "тренувати весь словник" (activeTag === null) дублювало б звичайне
   // повторення, тільки без користі для розкладу
   const practiceBtn = document.getElementById("practice-btn");
-  const practiceCards = activeTag ? wordsInScope().length * DIRECTIONS.length : 0;
+  const practiceCards = activeTag ? practicableInScope().length * DIRECTIONS.length : 0;
   practiceBtn.hidden = !practiceCards;
   if (practiceCards) {
     practiceBtn.textContent = `🎯 Тренувати: ${scopeLabel} (${practiceCards})`;

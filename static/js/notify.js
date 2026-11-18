@@ -30,6 +30,7 @@ function nextDueAtAll() {
   const now = nowStr();
   let earliest = null;
   for (const w of words) {
+    if (isSuspended(w)) continue;
     for (const dir of DIRECTIONS) {
       const r = reviews[w.uuid + "|" + dir];
       if (r && r.due_at > now && (earliest === null || r.due_at < earliest)) {

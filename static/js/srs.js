@@ -15,6 +15,7 @@ const LEECH_THRESHOLD = 4;
 // на відміну від level (скидається на 0 при провалі), lapses ніколи не
 // зменшується — це довгостроковий слід "скільки разів це слово вже провалено"
 function isLeech(w) {
+  if (isSuspended(w)) return false;   // відкладене слово вже не "проблема", яку треба розбирати
   return DIRECTIONS.some((dir) => {
     const r = reviews[w.uuid + "|" + dir];
     return r && r.lapses >= LEECH_THRESHOLD;
@@ -42,12 +43,23 @@ function shuffle(arr) {
   return arr;
 }
 
+// слова для повторення за розкладом: відкладені не потрапляють ніколи
+function schedulableInScope() {
+  return wordsInScope().filter((w) => !isSuspended(w));
+}
+
+// слова для практики (тренування, речення): відкладені — лише коли саме їх і
+// вибрано фільтром "⏸ відкладені" (перевірити, чи не час повернути)
+function practicableInScope() {
+  return activeTag === SUSPENDED_TAG ? wordsInScope() : schedulableInScope();
+}
+
 // всі картки активної області, незалежно від розкладу — саме в цьому суть
 // тренування за тегом: пройти категорію зараз, а не чекати, поки слова стануть
 // due (ліміту NEW_PER_SESSION теж немає — сесію ти почав свідомо й сам)
 function collectPractice() {
   const cards = [];
-  for (const w of wordsInScope()) {
+  for (const w of practicableInScope()) {
     for (const dir of DIRECTIONS) cards.push({ w, dir });
   }
   return shuffle(cards);
@@ -58,7 +70,7 @@ function collectPractice() {
 function collectDue() {
   const now = nowStr();
   const due = [], fresh = [];
-  for (const w of wordsInScope()) {
+  for (const w of schedulableInScope()) {
     for (const dir of DIRECTIONS) {
       const r = reviews[w.uuid + "|" + dir];
       if (!r) fresh.push({ w, dir });
@@ -111,7 +123,7 @@ function orderSiblingsHarderFirst(cards) {
 function nextDueAt() {
   const now = nowStr();
   let earliest = null;
-  for (const w of wordsInScope()) {
+  for (const w of schedulableInScope()) {
     for (const dir of DIRECTIONS) {
       const r = reviews[w.uuid + "|" + dir];
       if (r && r.due_at > now && (earliest === null || r.due_at < earliest)) {
@@ -242,6 +254,7 @@ const rvReveal = document.getElementById("rv-reveal");
 const rvWrong = document.getElementById("rv-wrong");
 const rvRight = document.getElementById("rv-right");
 const rvRetryWrong = document.getElementById("rv-retry-wrong");
+const rvSuspend = document.getElementById("rv-suspend");
 const rvMode = document.getElementById("rv-mode");
 const rvStrict = document.getElementById("rv-strict");
 const rvType = document.getElementById("rv-type");
@@ -315,7 +328,7 @@ function presentCard() {
   rvDone.hidden = !finished;
   rvDir.hidden = rvFront.hidden = finished;
   rvBack.hidden = rvEx.hidden = rvVerdict.hidden = rvCloze.hidden = true;
-  rvWrong.hidden = rvRight.hidden = rvRetryWrong.hidden = true;
+  rvWrong.hidden = rvRight.hidden = rvRetryWrong.hidden = rvSuspend.hidden = true;
   rvMode.hidden = finished;
   lastVerdict = null;
   if (finished) {
@@ -371,6 +384,8 @@ function reveal() {
   }
   rvReveal.hidden = rvType.hidden = true;
   rvWrong.hidden = rvRight.hidden = false;
+  // лише після відповіді: спершу видно, чи слово непотрібне, а не просто важке
+  rvSuspend.hidden = isSuspended(currentCard.w);
   setHint(lastVerdict === null
     ? "1 — не знав · 2 — знав"
     : "Enter — підтвердити · 1 — не знав · 2 — знав");
@@ -445,6 +460,20 @@ function grade(correct) {
       sessionWrong.push(currentCard);
     }
   }
+  nextCard();
+}
+
+// прибирає слово з повторень без оцінки: обидва напрямки зникають з черги
+// і з "Ще раз провалені", рівень і lapses лишаються як були — після
+// повернення слово продовжить з того ж місця
+function suspendCurrent() {
+  const { w } = currentCard;
+  if (!confirm(`Відкласти «${w.georgian}»? Слово зникне з повторень, але лишиться в словнику — повернути можна у фільтрі «⏸ відкладені».`)) {
+    return;
+  }
+  setSuspended(w, true);
+  queue = queue.filter((c) => c.w.uuid !== w.uuid);
+  sessionWrong = sessionWrong.filter((c) => c.w.uuid !== w.uuid);
   nextCard();
 }
 
