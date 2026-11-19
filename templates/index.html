@@ -36,6 +36,7 @@
   </div>
   <button type="button" id="practice-btn" hidden></button>
   <button type="button" id="sentences-btn" hidden></button>
+  <button type="button" id="ai-btn" title="Речення від моделі на переклад з української — не впливає на SRS-розклад">🤖 Переклади з української</button>
   <p class="review-next" id="review-next" hidden></p>
 
   <div class="tagbar" id="tagbar" hidden></div>
@@ -158,6 +159,52 @@
     </div>
   </div>
 
+  <div id="ai-overlay" hidden>
+    <div class="ch-top">
+      <span class="ch-title">🤖 Переклади</span>
+      <span class="rv-top-btns">
+        <button type="button" id="ai-gen-btn" title="Скласти нові вправи">➕</button>
+        <button type="button" id="ai-practice-btn" title="Тренувати переклад">🎓</button>
+        <button type="button" id="ai-close" title="Закрити">✕</button>
+      </span>
+    </div>
+    <p class="ai-status" id="ai-status" hidden></p>
+    <form class="note-form" id="ai-form" hidden>
+      <textarea id="af-question" rows="2" placeholder="Речення українською" lang="uk"></textarea>
+      <textarea id="af-answer" rows="2" placeholder="Еталон грузинською" lang="ka"></textarea>
+      <textarea id="af-hint" rows="2" placeholder="Підказка з граматики (необов'язково)" lang="uk"></textarea>
+      <div class="note-form-btns">
+        <button type="submit" id="af-save">Зберегти</button>
+        <button type="button" id="af-cancel">Скасувати</button>
+      </div>
+    </form>
+    <div id="ai-log"></div>
+    <div id="ai-practice" hidden>
+      <p class="rv-dir" id="ap-progress"></p>
+      <div class="rv-card">
+        <p class="rv-front" id="ap-question"></p>
+        <p class="rv-ex" id="ap-yours" lang="ka" hidden></p>
+        <p class="rv-back" id="ap-answer" lang="ka" hidden></p>
+        <p class="rv-cloze" id="ap-hint" hidden></p>
+        <p class="rv-done" id="ap-done" hidden></p>
+      </div>
+      <form class="rv-type" id="ap-form">
+        <input id="ap-input" lang="ka" autocomplete="off" autocapitalize="off"
+               autocorrect="off" spellcheck="false" placeholder="ქართული…">
+        <button type="submit">Еталон</button>
+      </form>
+      <div class="rv-actions">
+        <button type="button" id="ap-wrong" hidden>❌ Не знав</button>
+        <button type="button" id="ap-right" hidden>✅ Знав</button>
+        <button type="button" id="ap-back" hidden>До списку</button>
+      </div>
+      <p class="ai-meta" id="ap-meta" hidden>
+        <button type="button" id="ap-flag"></button>
+        <span id="ap-info"></span>
+      </p>
+    </div>
+  </div>
+
 <script src="/static/js/overlay.js"></script>
 <script src="/static/js/store.js"></script>
 <script src="/static/js/catalog.js"></script>
@@ -169,6 +216,7 @@
 <script src="/static/js/chat.js"></script>
 <script src="/static/js/notes.js"></script>
 <script src="/static/js/sentences.js"></script>
+<script src="/static/js/ai.js"></script>
 <script src="/static/js/main.js"></script>
 </body>
 </html>

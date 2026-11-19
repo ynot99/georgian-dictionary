@@ -33,6 +33,13 @@ function updateTagbarShadow() {
 }
 tagbarEl.addEventListener("scroll", updateTagbarShadow);
 
+// назва активного фільтра для кнопок і заголовків (null — фільтра немає)
+function activeScopeLabel() {
+  return activeTag === LEECH_TAG ? "проблемні"
+    : activeTag === VERB_TAG ? "дієслова"
+    : activeTag === SUSPENDED_TAG ? "відкладені" : activeTag;
+}
+
 function el(tag, cls, text) {
   const node = document.createElement(tag);
   if (cls) node.className = cls;
@@ -314,9 +321,7 @@ function render() {
   const { due, fresh } = collectDue();
   const total = due.length + Math.min(fresh.length, NEW_PER_SESSION);
   const reviewBtn = document.getElementById("review-btn");
-  const scopeLabel = activeTag === LEECH_TAG ? "проблемні"
-    : activeTag === VERB_TAG ? "дієслова"
-    : activeTag === SUSPENDED_TAG ? "відкладені" : activeTag;
+  const scopeLabel = activeScopeLabel();
   const label = activeTag ? `🎓 Повторення: ${scopeLabel}` : "🎓 Повторення";
   reviewBtn.textContent = total ? `${label} (${total})` : label;
   reviewBtn.disabled = !total;

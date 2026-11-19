@@ -7,6 +7,7 @@ from datetime import datetime
 from flask import Flask, render_template
 
 from backup_db import create_backup, last_backup_at, prune_backups
+from server.ai import ai_bp
 from server.catalog import catalog_bp
 from server.chat import chat_bp
 from server.db import close_db, init_db
@@ -19,6 +20,7 @@ app = Flask(__name__)
 app.register_blueprint(words_bp)
 app.register_blueprint(chat_bp)
 app.register_blueprint(catalog_bp)
+app.register_blueprint(ai_bp)
 app.register_blueprint(mkcert_bp)
 app.teardown_appcontext(close_db)
 

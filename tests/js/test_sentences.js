@@ -63,6 +63,7 @@ closeSentences();
 // клавіатура: Enter іде далі лише після перевірки, Escape закриває
 chatOverlay.hidden = true;    // у реальному DOM атрибут hidden стоїть у HTML
 notesOverlay.hidden = true;
+aiOverlay.hidden = true;
 const kd = window.listeners.keydown[0];
 const ev = (key) => ({ key, preventDefault() {} });
 sentences = sentences.slice(0, 2);

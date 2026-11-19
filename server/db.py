@@ -156,6 +156,40 @@ def init_db():
                 changed_at TEXT NOT NULL
             )
         """)
+        # вправи, згенеровані дешевою моделлю через OpenRouter (server/ai.py).
+        # Зберігаються всі, щоб їх можна було переглянути, виправити, видалити й
+        # перевірити (review: '' — не перевірено, 'ok' — можна вчити, 'bad' — ні);
+        # flagged — учень сам позначив вправу як підозрілу під час тренування
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS ai_exercises (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                word_uuid TEXT NOT NULL,
+                mode TEXT NOT NULL,
+                question TEXT NOT NULL,
+                answer TEXT NOT NULL,
+                hint TEXT NOT NULL DEFAULT '',
+                model TEXT NOT NULL,
+                review TEXT NOT NULL DEFAULT '',
+                review_note TEXT NOT NULL DEFAULT '',
+                flagged INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+        """)
+        # журнал платних викликів: скільки коштує генерація і чому вона падала
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS ai_calls (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                mode TEXT NOT NULL,
+                model TEXT NOT NULL,
+                ok INTEGER NOT NULL,
+                cost REAL,
+                prompt_tokens INTEGER,
+                completion_tokens INTEGER,
+                error TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL
+            )
+        """)
 
 
 def utcnow():

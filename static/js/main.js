@@ -164,9 +164,33 @@ notesFilterBtn.addEventListener("click", toggleNotesFilter);
 nrReveal.addEventListener("click", revealNote);
 nrWrong.addEventListener("click", () => gradeNote(false));
 nrRight.addEventListener("click", () => gradeNote(true));
+document.getElementById("ai-btn").addEventListener("click", openAi);
+document.getElementById("ai-close").addEventListener("click", closeAi);
+aiGenBtn.addEventListener("click", generateAiExercises);
+aiPracticeBtn.addEventListener("click", toggleAiPractice);
+aiForm.addEventListener("submit", saveAiForm);
+document.getElementById("af-cancel").addEventListener("click", closeAiForm);
+apForm.addEventListener("submit", (e) => {
+  e.preventDefault();
+  revealAiAnswer();
+});
+apWrong.addEventListener("click", () => gradeAiExercise(false));
+apRight.addEventListener("click", () => gradeAiExercise(true));
+apBack.addEventListener("click", toggleAiPractice);
+apFlag.addEventListener("click", toggleApFlag);
 
 // клавіатура в сесії повторення: Enter/1/2/Escape
 window.addEventListener("keydown", (e) => {
+  if (!aiOverlay.hidden) {
+    if (e.key === "Escape") {
+      if (!aiForm.hidden) closeAiForm();
+      else closeAi();
+    } else if (!apWrong.hidden && (e.key === "1" || e.key === "2")) {
+      e.preventDefault();
+      gradeAiExercise(e.key === "2");
+    }
+    return;
+  }
   if (!notesOverlay.hidden) {          // нотатки можуть відкритись поверх чату
     if (e.key === "Escape") {
       // Escape при відкритій формі — спершу закрити форму, а не все вікно

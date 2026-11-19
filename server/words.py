@@ -234,6 +234,7 @@ def api_delete(word_uuid):
     db.execute("DELETE FROM reviews WHERE word_uuid = ?", (word_uuid,))
     db.execute("DELETE FROM sentences WHERE word_uuid = ?", (word_uuid,))
     db.execute("DELETE FROM suspensions WHERE word_uuid = ?", (word_uuid,))
+    db.execute("DELETE FROM ai_exercises WHERE word_uuid = ?", (word_uuid,))
     db.commit()
     return {"ok": True}
 

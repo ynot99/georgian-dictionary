@@ -134,9 +134,10 @@ function makeUuid() {
 // щоб індикатор статусу і кнопки не зависали.
 const NETWORK_TIMEOUT_MS = 4000;
 
-function fetchWithTimeout(url, options) {
+// timeoutMs довший лише там, де сервер сам чекає на модель (генерація вправ)
+function fetchWithTimeout(url, options, timeoutMs = NETWORK_TIMEOUT_MS) {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), NETWORK_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   return fetch(url, { ...options, signal: controller.signal })
     .finally(() => clearTimeout(timer));
 }

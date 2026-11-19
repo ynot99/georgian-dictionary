@@ -7,3 +7,4 @@ backups/
 certs/
 .env
 chat_errors.log
+ai_errors.log
