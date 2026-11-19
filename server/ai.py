@@ -31,7 +31,9 @@ if not logger.handlers:
 load_env()
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
+OPENROUTER_CREDITS_URL = "https://openrouter.ai/api/v1/credits"
 AI_TIMEOUT_S = 60
+AI_BALANCE_TIMEOUT_S = 10
 AI_EXERCISES_PER_CALL = 5   # більше слів за раз — довша відповідь і більше шансів на помилку
 AI_ATTEMPTS = 2             # повтор лише на незрозумілу відповідь, не на помилку API
 
@@ -137,6 +139,24 @@ def call_openrouter(messages, model, api_key):
         "completion_tokens": usage.get("completion_tokens"),
     }
     return data["choices"][0]["message"]["content"], meta
+
+
+def fetch_openrouter_credits(api_key):
+    """Баланс акаунта OpenRouter → (куплено, витрачено) у доларах. Безкоштовний
+    GET зі звичайним ключем; тести підміняють цю функцію."""
+    req = urllib.request.Request(
+        OPENROUTER_CREDITS_URL, headers={"Authorization": f"Bearer {api_key}"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=AI_BALANCE_TIMEOUT_S) as resp:
+            data = json.loads(resp.read().decode("utf-8"))["data"]
+        return float(data["total_credits"]), float(data["total_usage"])
+    except urllib.error.HTTPError as e:
+        raise AiError(f"OpenRouter не віддав баланс (помилка {e.code}).")
+    except (urllib.error.URLError, TimeoutError, OSError):
+        raise AiError("Немає з'єднання з OpenRouter.")
+    except (ValueError, KeyError, TypeError):
+        raise AiError("Незрозуміла відповідь OpenRouter про баланс.")
 
 
 def parse_exercises(content, word_ids):
@@ -252,6 +272,21 @@ def api_ai_exercises():
         "model": model,
         "spent": spent,
     }
+
+
+@ai_bp.route("/api/ai/balance")
+def api_ai_balance():
+    """Окремо від списку вправ: запит іде в інтернет, і без нього список
+    має відкриватися так само швидко. "spent" у списку — лише виклики з
+    цього застосунку, а тут — увесь акаунт."""
+    api_key, _ = ai_config()
+    if not api_key:
+        return {"error": "Немає OPENROUTER_API_KEY."}, 503
+    try:
+        credits, usage = fetch_openrouter_credits(api_key)
+    except AiError as e:
+        return {"error": str(e)}, 502
+    return {"balance": round(credits - usage, 6), "credits": credits, "usage": usage}
 
 
 @ai_bp.route("/api/ai/exercises/generate", methods=["POST"])

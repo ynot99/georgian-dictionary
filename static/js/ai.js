@@ -23,9 +23,16 @@ const afQuestion = document.getElementById("af-question");
 const afAnswer = document.getElementById("af-answer");
 const afHint = document.getElementById("af-hint");
 
+const aiBalanceEl = document.getElementById("ai-balance");
+const AI_BALANCE_TIMEOUT_MS = 15000;    // сервер чекає на OpenRouter до 10 с
+const AI_LOW_BALANCE = 0.05;            // нижче — підсвітити й нагадати поповнити
+
 let aiCache = [];
 let aiEnabled = false;
 let aiSpent = 0;
+// баланс акаунта OpenRouter: null — ще не знаємо (вантажиться або недоступний)
+let aiBalance = null;
+let aiBalanceError = "";
 let aiBusy = false;
 let aiEditingId = null;
 // id вправи, у якої 🗑 вже натиснуто раз: видаляє другий тап, а не confirm(),
@@ -100,6 +107,45 @@ async function openAi() {
   setAiStatus("");
   showAiList();
   await reloadAi();
+  loadAiBalance();   // окремо: список не чекає на запит до OpenRouter
+}
+
+// виклик коштує частки цента — з двома знаками все виглядало б як $0.00
+function formatUsd(v) {
+  const digits = Math.abs(v) < 0.1 ? 4 : 2;
+  return (v < 0 ? "−$" : "$") + Math.abs(v).toFixed(digits);
+}
+
+async function loadAiBalance() {
+  if (!aiEnabled) {
+    renderAiBalance();
+    return;
+  }
+  aiBalance = null;
+  aiBalanceError = "";
+  renderAiBalance();
+  try {
+    const res = await fetchWithTimeout("/api/ai/balance", {}, AI_BALANCE_TIMEOUT_MS);
+    const data = await res.json().catch(() => ({}));
+    if (res.ok) aiBalance = data.balance;
+    else aiBalanceError = data.error || "недоступний";
+  } catch {
+    aiBalanceError = "немає з'єднання";
+  }
+  renderAiBalance();
+}
+
+// Баланс — увесь акаунт OpenRouter (з його ж даних), "витрачено тут" — сума
+// вартостей викликів саме з цього застосунку (журнал ai_calls)
+function renderAiBalance() {
+  aiBalanceEl.hidden = !aiEnabled || !aiPractice.hidden;
+  if (aiBalanceEl.hidden) return;
+  const low = aiBalance !== null && aiBalance < AI_LOW_BALANCE;
+  const balance = aiBalance !== null
+    ? `Баланс OpenRouter: ${formatUsd(aiBalance)}${low ? " — поповни" : ""}`
+    : aiBalanceError ? `Баланс OpenRouter: ${aiBalanceError}` : "Баланс OpenRouter: …";
+  aiBalanceEl.textContent = balance + (aiSpent ? ` · витрачено тут: ${formatUsd(aiSpent)}` : "");
+  aiBalanceEl.classList.toggle("low", low);
 }
 
 function closeAi() {
@@ -112,10 +158,8 @@ function renderAi(highlightIds = new Set()) {
   aiLog.replaceChildren();
   const ok = aiCache.filter((e) => e.review === "ok").length;
   const bad = aiCache.filter((e) => e.review === "bad").length;
-  // виклик коштує частки цента — з двома знаками все виглядало б як $0.00
-  const spent = aiSpent ? ` · витрачено $${aiSpent.toFixed(aiSpent < 0.1 ? 4 : 2)}` : "";
   aiLog.append(el("p", "ai-summary", aiCache.length
-    ? `Вправ: ${aiCache.length} · перевірено: ${ok} · не вчити: ${bad}${spent}`
+    ? `Вправ: ${aiCache.length} · перевірено: ${ok} · не вчити: ${bad}`
     : `Вправ поки немає — ➕ складе ${AI_WORDS_PER_CALL} речень на переклад зі слів, які ти вчиш.`));
   if (!aiEnabled) {
     aiLog.append(el("p", "ch-note", "Генерація вимкнена: потрібні OPENROUTER_API_KEY і " +
@@ -223,9 +267,10 @@ async function generateAiExercises() {
       return;
     }
     const skipped = data.skipped ? ` (ще ${data.skipped} модель склала непридатно — відкинуто)` : "";
-    const cost = typeof data.cost === "number" ? ` · $${data.cost.toFixed(4)}` : "";
+    const cost = typeof data.cost === "number" ? ` · ${formatUsd(data.cost)}` : "";
     setAiStatus(`Додано вправ: ${data.exercises.length}${skipped}${cost}`);
     await reloadAi(new Set(data.exercises.map((e) => e.id)));
+    loadAiBalance();
   } catch (e) {
     setAiStatus(e.name === "AbortError"
       ? "Модель не відповіла вчасно — спробуй ще раз."
@@ -302,6 +347,7 @@ function showAiList() {
   aiLog.hidden = false;
   aiPracticeBtn.textContent = "🎓";
   aiPracticeBtn.title = "Тренувати переклад";
+  renderAiBalance();
 }
 
 function startAiPractice() {
@@ -315,6 +361,7 @@ function startAiPractice() {
   aiPractice.hidden = false;
   aiPracticeBtn.textContent = "📋";
   aiPracticeBtn.title = "До списку вправ";
+  renderAiBalance();   // під час тренування не відволікає
   forceReflow(aiOverlay);   // щоб автофокус бачив уже готову геометрію вікна
   nextAiExercise();
 }

@@ -63,6 +63,21 @@ aiCache = [];
 startAiPractice();
 assert.ok(apDone.textContent.includes("Немає вправ"), "порожня сесія пояснює, що робити");
 
+// баланс: частки цента не зливаються в $0.00, мінус видно, низький — підсвічено
+assert.strictEqual(formatUsd(0.00023865), "$0.0002");
+assert.strictEqual(formatUsd(-0.0295), "−$0.0295");
+assert.strictEqual(formatUsd(4.5), "$4.50");
+aiEnabled = true;
+aiPractice.hidden = true;
+aiSpent = 0.0003;
+aiBalance = -0.0295;
+renderAiBalance();
+assert.strictEqual(aiBalanceEl.textContent, "Баланс OpenRouter: −$0.0295 — поповни · витрачено тут: $0.0003");
+aiBalance = null;
+aiBalanceError = "немає з'єднання";
+renderAiBalance();
+assert.ok(aiBalanceEl.textContent.startsWith("Баланс OpenRouter: немає з'єднання"));
+
 assert.strictEqual(aiReviewLabel({ review: "bad", review_note: "не той відмінок" }), "✖ не вчити: не той відмінок");
 console.log("test_ai: OK");
 `);

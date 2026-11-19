@@ -339,6 +339,8 @@ form.add button {
 }
 .ai-status { font-size: .85rem; color: var(--muted); padding: 4px 2px 8px; margin: 0; }
 .ai-status.error { color: var(--warn); }
+.ai-balance { font-size: .82rem; color: var(--muted); margin: 0 0 6px; text-align: center; }
+.ai-balance.low { color: var(--warn); font-weight: 600; }
 .ai-summary { font-size: .82rem; color: var(--muted); margin: 0; text-align: center; }
 .ai-card .ai-answer { margin: 0 0 6px; font-size: 1rem; }
 .ai-card .ai-hint { margin: 0 0 6px; font-size: .88rem; color: var(--muted); }

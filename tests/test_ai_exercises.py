@@ -19,6 +19,7 @@ from server import ai, db  # noqa: E402
 tmp_dir = Path(tempfile.mkdtemp())
 orig_db_path = db.DB_PATH
 orig_call = ai.call_openrouter
+orig_credits = ai.fetch_openrouter_credits
 orig_env = {k: os.environ.get(k) for k in ("OPENROUTER_API_KEY", "OPENROUTER_MODEL")}
 
 calls = []
@@ -124,10 +125,24 @@ try:
     assert client.get("/api/ai/exercises").get_json()["exercises"] == []
     print("6. видалення слова каскадно прибирає вправи, вправу можна видалити окремо")
 
+    # баланс акаунта: куплено − витрачено; помилка OpenRouter — 502, без ключа — 503
+    ai.fetch_openrouter_credits = lambda key: (5.0, 0.25)
+    assert client.get("/api/ai/balance").get_json()["balance"] == 4.75
+
+    def failing_balance(key):
+        raise ai.AiError("Немає з'єднання з OpenRouter.")
+    ai.fetch_openrouter_credits = failing_balance
+    r = client.get("/api/ai/balance")
+    assert r.status_code == 502 and "з'єднання" in r.get_json()["error"]
+    os.environ.pop("OPENROUTER_API_KEY")
+    assert client.get("/api/ai/balance").status_code == 503
+    print("7. баланс: куплено мінус витрачено, помилки — зрозумілим текстом")
+
     print("\ntest_ai_exercises: OK")
 finally:
     db.DB_PATH = orig_db_path
     ai.call_openrouter = orig_call
+    ai.fetch_openrouter_credits = orig_credits
     for key, value in orig_env.items():
         if value is None:
             os.environ.pop(key, None)
